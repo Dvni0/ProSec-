@@ -17,7 +17,7 @@
 
 ---
 
-## 👥 Equipe - 1º Checkpoint
+## 👥 Equipe - 1º Sprint
 * **Vinícius Barros Souza** 
 * **Guilherme Torres da Silva** 
 * **Luis Fernando Picarelli Gonçalves Guariglia** 
