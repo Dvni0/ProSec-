@@ -71,18 +71,7 @@ Para garantir latência mínima e processamento off-line na planta industrial, o
 
 ---
 
-## ⚙️ Guia de Instalação e Testes Locais
-Instruções para preparação do ambiente de desenvolvimento.
 
-**Pré-requisitos:**
-* **Python 3.10+** instalado no sistema.
-* Ambiente Linux (ex: Linux Mint, Ubuntu) ou Windows.
-
-**Passo a passo:**
-1. Clone o repositório:
-   ```bash
-   git clone https://github.com/SEU-USUARIO/prosec-metaindustria.git
-   cd prosec-metaindustria
 
 ## 📁 Documentação e Diagramas
 *   [Documento de Requisitos](./docs/requisitos.md)
