@@ -18,11 +18,11 @@
 ---
 
 ## 👥 Equipe - 1º Checkpoint
-* **Vinícius** (RM: [Seu RM])
-* **Guilherme Torres da Silva** (RM: [RM])
-* **Luis Fernando Picarelli Gonçalves Guariglia** (RM: [RM])
-* **Alexandre Caus Haddade** (RM: [RM])
-* **Mário Secundino Santana Lopes Portella** (RM: [RM])
+* **Vinícius Barros Souza** 
+* **Guilherme Torres da Silva** 
+* **Luis Fernando Picarelli Gonçalves Guariglia** (RM:555458)
+* **Alexandre Caus Haddade** 
+* **Mário Secundino Santana Lopes Portella** 
 
 ---
 
