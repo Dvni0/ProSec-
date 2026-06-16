@@ -6,7 +6,7 @@
 ![Interface](https://img.shields.io/badge/GUI-PyQt-lightgrey)
 
 ## 📖 Índice
-* [Equipe - 1º Checkpoint](#-equipe---1º-checkpoint)
+* [Equipe - 1º Sprint](#-equipe---1º-checkpoint)
 * [Contexto e Problema](#-contexto-e-problema)
 * [A Solução ProSec](#-a-solução-prosec)
 * [Arquitetura e Tecnologias](#-arquitetura-e-tecnologias)
