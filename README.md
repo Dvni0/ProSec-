@@ -78,3 +78,26 @@ Para garantir latência mínima e processamento off-line na planta industrial, o
 *   [Diagrama de Casos de Uso](./docs/diagramas/casos_de_uso.png)
 *   [Diagrama de Atividades](./docs/diagramas/atividades.png)
 *   [Diagrama de Classes](./docs/diagramas/classes.png)
+
+
+## 🖼️ Sprint 2 — Prototipação Funcional e Navegável
+
+O protótipo de alta fidelidade do **ProSec** foi implementado para validar visualmente os fluxos operacionais e a inteligência preditiva modelada na Sprint 1. O design simula fielmente a experiência do usuário em um ambiente de supervisão industrial (SCADA).
+
+* 🔗 **Link do Protótipo Interativo (Figma):** []
+* 🎬 **Vídeo de Walkthrough (YouTube):** []
+
+### 🕹️ Instruções de Navegação
+
+Para simular o fluxo completo da aplicação de segurança preditiva, siga os passos abaixo no modo de apresentação do Figma:
+
+1.  **Monitoramento Geral:** O sistema é iniciado no **Dashboard Principal**. Observe a disposição dos feeds de vídeo das câmeras industriais e o painel à direita com o gráfico de nível de risco (*Risk Level* atual em 35%), alimentado pelas predições do nosso modelo XGBoost.
+2.  **Disparo de Alerta Crítico:** No feed de vídeo que simula uma quebra de protocolo de segurança, clique na imagem da câmera. O protótipo navegará automaticamente para a tela de **Alerta Crítico (Critical Alert)**. Esta tela simula a reação do sistema quando o modelo YOLOv8 detecta um operador sem capacete. Avalie o design de alto contraste e teste a usabilidade dos botões ampliados de ação rápida (`TRIGGER ALARM` e `DISMISS ALERT`).
+3.  **Consulta de Colaboradores:** No menu lateral esquerdo, clique no botão **Ops**. Você será direcionado para a tela de **Perfil do Operador (Operator Profile)**. Veja o gerenciamento granular do funcionário *John Martinez*, os *toggles* que indicam os status dos EPIs obrigatórios para o setor e o gráfico de histórico de conformidade dos últimos 30 dias.
+4.  **Análise de Tendências:** No menu lateral, clique em **Reports**. A interface abrirá a tela de **Evolução de Risco (Risk Evolution)**, onde gráficos analíticos de linha detalham as tendências semanais (*Risk Level Trend*) e as métricas diárias consolidadas para suporte a decisões da diretoria.
+5.  **Retorno:** Clique em **Dashboard** no menu lateral a qualquer momento para reiniciar o fluxo de navegação.
+
+
+## 📁 Documentação
+*   [Documentação de Design](./docs/documentacao_design.md)
+
