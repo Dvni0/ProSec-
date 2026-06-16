@@ -88,7 +88,7 @@ O protótipo de alta fidelidade do **ProSec** foi implementado para validar visu
 **https://perch-deep-20808547.figma.site/**
 
   
-* 🎬 **Vídeo de Walkthrough (YouTube):** 
+* 🎬 **Vídeo de Walkthrough (YouTube):**   **https://youtu.be/JV5UFHm-5uU**
 
 ### 🕹️ Instruções de Navegação
 
