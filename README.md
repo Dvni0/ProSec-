@@ -84,7 +84,7 @@ Para garantir latência mínima e processamento off-line na planta industrial, o
 
 O protótipo de alta fidelidade do **ProSec** foi implementado para validar visualmente os fluxos operacionais e a inteligência preditiva modelada na Sprint 1. O design simula fielmente a experiência do usuário em um ambiente de supervisão industrial (SCADA).
 
-* 🔗 **Link do Protótipo Interativo (Figma):** **https://www.figma.com/make/Kb3k6TgmOORUFSSxZSQodB/Industrial-Safety-System-Screens?fullscreen=1&t=GC23XgoxFXxl8aVL-1**
+* 🔗 **Link do Protótipo Interativo (Figma):** **https://www.figma.com/make/Kb3k6TgmOORUFSSxZSQodB/Industrial-Safety-System-Screens?fullscreen=1&t=GC23XgoxFXxl8aVL-1**  ou 
 **https://perch-deep-20808547.figma.site/**
 
   
