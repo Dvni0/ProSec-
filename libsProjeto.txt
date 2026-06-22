@@ -1,0 +1,1 @@
+pip install PySide6 opencv-python ultralytics xgboost scikit-learn joblib numpy pyqtgraph pandas
