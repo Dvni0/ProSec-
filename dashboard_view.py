@@ -377,13 +377,7 @@ class DashboardMainLayout(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
-        self.start_backend_pipeline()
 
-    def start_backend_pipeline(self):
-        self.pipeline_thread = SafetyPipelineThread(porta_serial='COM3')
-        self.pipeline_thread.frame_updated.connect(self.page_dashboard.cam1.set_frame)
-        self.pipeline_thread.metrics_updated.connect(self.update_live_metrics)
-        self.pipeline_thread.start()
 
     def update_live_metrics(self, postura, epi, risco_texto, cor, risco_percentual):
         self.page_dashboard.gauge.set_value(risco_percentual)
