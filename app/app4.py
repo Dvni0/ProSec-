@@ -23,14 +23,18 @@ class SafetyPipelineThread(QThread):
     # status_postura, status_epi, risco_texto, cor_hex, risco_percentual
     metrics_updated = Signal(str, str, str, str, int) 
 
-    def __init__(self, porta_serial='COM3', baudrate=115200):
+    def __init__(self, porta_serial='COM3', baudrate=115200, camera_index=0):
         super().__init__()
         self.stop_flag = False
+        self.camera_index = camera_index
         
         # Carregamento dos modelos
         self.model_pose = YOLO('yolov8n-pose.pt') 
         self.model_epi = YOLO('modelo_treino_mario.pt') 
-        
+        self.active_tags = {
+            "postura": True, "capacete": True, "colete": True,
+            "oculos": True, "luvas": True, "botas": True
+        }
         # Configuração da comunicação USB com ESP32
         self.esp32_conn = None
         try:
@@ -39,9 +43,15 @@ class SafetyPipelineThread(QThread):
         except Exception as e:
             print(f"⚠ Aviso: ESP32 não conectado em {porta_serial}. Erro: {e}")
 
+    def set_tags(self, tags_dict):
+        """Atualiza quais validações a IA deve processar no próximo frame"""
+        self.active_tags.update(tags_dict)
+
+
+        
     def run(self):
-        # Tenta inicializar a câmera
-        cap = cv2.VideoCapture(0)
+        # Inicializa a câmera selecionada no menu
+        cap = cv2.VideoCapture(self.camera_index)
         if not cap.isOpened():
             print("❌ Nenhuma câmera funcional encontrada.")
             return
@@ -51,9 +61,21 @@ class SafetyPipelineThread(QThread):
             if not ret:
                 continue
 
-            # 1. Inferência dos Modelos
-            results_pose = self.model_pose(frame, verbose=False, conf=0.5)
-            results_epi = self.model_epi(frame, verbose=False, conf=0.5)
+            # 1. Inferência dos Modelos (Filtrada nativamente para bloquear o .plot() de classes indesejadas)
+            results_pose = self.model_pose(frame, verbose=False, conf=0.5) if self.active_tags["postura"] else None
+            
+            # IDs de classe assumidos: 0=Capacete, 1=Colete, 2=Óculos, 3=Luvas, 4=Botas. Ajuste se o seu modelo diferir.
+            classes_permitidas = []
+            if self.active_tags["capacete"]: classes_permitidas.append(0)
+            if self.active_tags["colete"]: classes_permitidas.append(1)
+            if self.active_tags["oculos"]: classes_permitidas.append(2)
+            if self.active_tags["luvas"]: classes_permitidas.append(3)
+            if self.active_tags["botas"]: classes_permitidas.append(4)
+            
+            if len(classes_permitidas) > 0:
+                results_epi = self.model_epi(frame, verbose=False, conf=0.5, classes=classes_permitidas)
+            else:
+                results_epi = None
             
             # Variáveis iniciais
             postura_score = 0
@@ -65,7 +87,7 @@ class SafetyPipelineThread(QThread):
             epi_ausentes = []
             
             # 2. Lógica de Postura (Baseado no RULA - Tronco e Pescoço)
-            if results_pose[0].keypoints is not None and len(results_pose[0].keypoints.xy) > 0:
+            if self.active_tags["postura"] and results_pose and results_pose[0].keypoints is not None and len(results_pose[0].keypoints.xy) > 0:
                 keypoints = results_pose[0].keypoints.xy[0].cpu().numpy()
                 if len(keypoints) > 12: # Verifica se há pontos suficientes mapeados
                     # Pega ombro (ID 5 ou 6) e quadril (ID 11 ou 12) para calcular a inclinação do tronco
@@ -97,13 +119,14 @@ class SafetyPipelineThread(QThread):
                 frame = results_pose[0].plot()
 
             # 3. Lógica de EPI
-            tem_capacete = False
-            tem_colete = False
-            if results_epi[0].boxes is not None:
+            # Inverte a lógica base: Se a tag está desativada, assume-se que está 'True' para não gerar multa indevida
+            tem_capacete = not self.active_tags["capacete"] 
+            tem_colete = not self.active_tags["colete"]
+            if results_epi and results_epi[0].boxes is not None:
                 for box in results_epi[0].boxes:
                     cls_id = int(box.cls[0].item())
-                    if cls_id == 0: tem_capacete = True
-                    elif cls_id == 1: tem_colete = True
+                    if cls_id == 0 and self.active_tags["capacete"]: tem_capacete = True
+                    elif cls_id == 1 and self.active_tags["colete"]: tem_colete = True
                 frame = results_epi[0].plot(img=frame)
             
             if not tem_capacete: 

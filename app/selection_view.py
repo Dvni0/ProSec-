@@ -19,7 +19,6 @@ class OptionCard(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Fundo do Card
         bg_color = QColor("#171921") if self.is_active else QColor("#13151C")
         border_color = QColor(COLOR_YELLOW) if self.is_active else QColor(COLOR_BORDER)
         
@@ -27,15 +26,12 @@ class OptionCard(QPushButton):
         painter.setPen(QPen(border_color, 1.5))
         painter.drawRoundedRect(0, 0, self.width(), self.height(), 16, 16)
         
-        # Configuração do pincel do ícone
         icon_color = COLOR_YELLOW if self.is_active else "#8A909F"
         pen = QPen(QColor(icon_color), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         
-        # --- DESENHO VETORIAL DOS ÍCONES ---
         if self.icon_type == "camera":
-            # Câmera de Vigilância Industrial
             painter.save()
             painter.translate(90, 75)
             painter.rotate(-15)
@@ -50,7 +46,6 @@ class OptionCard(QPushButton):
             painter.restore()
             
         elif self.icon_type == "settings":
-            # Engrenagem com ferramentas interna
             painter.save()
             painter.translate(90, 75)
             painter.drawEllipse(-20, -20, 40, 40)
@@ -66,7 +61,6 @@ class OptionCard(QPushButton):
             painter.restore()
             
         elif self.icon_type == "ranking":
-            # Gráfico de barras com caps brilhantes
             painter.save()
             painter.translate(90, 75)
             bars = [(-30, 32), (0, 48), (30, 64)]
@@ -76,22 +70,21 @@ class OptionCard(QPushButton):
                 painter.setBrush(QBrush(QColor("#1A1C23")))
                 painter.drawRoundedRect(rect, 4, 4)
                 
-                # Cap brilhante
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(QBrush(QColor(COLOR_YELLOW if self.is_active else "#8A909F")))
                 painter.drawRoundedRect(x - 10, 30 - h, 20, 8, 3, 3)
             painter.restore()
             
-        # Rótulo de texto abaixo do ícone
         painter.setPen(QColor("white") if self.is_active else QColor(COLOR_TEXT_MUTED))
         font = QFont("Segoe UI", 10, QFont.Bold if self.is_active else QFont.Normal)
         painter.setFont(font)
         text_rect = QRectF(10, 135, self.width() - 20, 30)
         painter.drawText(text_rect, Qt.AlignCenter, self.title)
 
-
 class SelectionView(QWidget):
     # Sinais para navegação modularizada
+    camera_selected = Signal()
+    settings_selected = Signal()
     ranking_selected = Signal()
     back_requested = Signal()
 
@@ -104,15 +97,12 @@ class SelectionView(QWidget):
         main_layout.setContentsMargins(40, 40, 40, 40)
         main_layout.setSpacing(0)
         
-        # 1. Cabeçalho Superior (Perfil do Usuário Logado)
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         
-        # Configura o rótulo do nome do usuário de forma dinâmica
-        user_lbl = QLabel(NOME_DO_OPERADOR)  # substitua por uma variavel
+        user_lbl = QLabel(NOME_DO_OPERADOR)
         user_lbl.setStyleSheet("color: white; font-size: 13px; font-weight: bold; background: transparent;")
         
-        # Calcula as iniciais do usuário de forma dinâmica para exibição no menu principal
         sidebar_initials = "".join([part[0] for part in NOME_DO_OPERADOR.split() if part])[:2]
         avatar_lbl = QLabel(sidebar_initials)
         avatar_lbl.setFixedSize(32, 32)
@@ -123,7 +113,6 @@ class SelectionView(QWidget):
         top_bar.addWidget(avatar_lbl)
         main_layout.addLayout(top_bar)
         
-        # 2. Seção Central
         main_layout.addSpacing(60)
         title_lbl = QLabel("O que deseja acessar?")
         title_lbl.setAlignment(Qt.AlignCenter)
@@ -131,16 +120,17 @@ class SelectionView(QWidget):
         main_layout.addWidget(title_lbl)
         main_layout.addSpacing(40)
         
-        # Horizontal layout de opções de acesso
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(25)
         cards_layout.setAlignment(Qt.AlignCenter)
         
         card_cam = OptionCard("Acesso às câmeras", "camera", is_active=True)
-        card_config = OptionCard("Configurações", "settings", is_active=False)
+        card_config = OptionCard("Configurações", "settings", is_active=True) # Ativado
         card_ranking = OptionCard("Ranking", "ranking", is_active=True)
         
-        # Evento: Ranking abre o Dashboard
+        # Conectando todos os cards
+        card_cam.clicked.connect(self.camera_selected.emit)
+        card_config.clicked.connect(self.settings_selected.emit)
         card_ranking.clicked.connect(self.ranking_selected.emit)
         
         cards_layout.addWidget(card_cam)
@@ -148,7 +138,6 @@ class SelectionView(QWidget):
         cards_layout.addWidget(card_ranking)
         main_layout.addLayout(cards_layout)
         
-        # 3. Botões de ação inferiores
         main_layout.addSpacing(70)
         bottom_btns = QHBoxLayout()
         bottom_btns.setSpacing(20)
@@ -156,37 +145,11 @@ class SelectionView(QWidget):
         
         create_btn = QPushButton("CRIAÇÃO DE CONTA")
         create_btn.setCursor(Qt.PointingHandCursor)
-        create_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_YELLOW};
-                color: #121319;
-                font-weight: bold;
-                font-size: 13px;
-                border: none;
-                border-radius: 20px;
-                padding: 12px 30px;
-            }}
-            QPushButton:hover {{
-                background-color: #D39E00;
-            }}
-        """)
+        create_btn.setStyleSheet(f"QPushButton {{ background-color: {COLOR_YELLOW}; color: #121319; font-weight: bold; font-size: 13px; border: none; border-radius: 20px; padding: 12px 30px; }} QPushButton:hover {{ background-color: #D39E00; }}")
         
         manage_btn = QPushButton("Gerenciamento de contas")
         manage_btn.setCursor(Qt.PointingHandCursor)
-        manage_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: transparent;
-                color: {COLOR_YELLOW};
-                font-weight: bold;
-                font-size: 13px;
-                border: 2px solid {COLOR_YELLOW};
-                border-radius: 20px;
-                padding: 10px 28px;
-            }}
-            QPushButton:hover {{
-                background-color: rgba(244,180,0,0.06);
-            }}
-        """)
+        manage_btn.setStyleSheet(f"QPushButton {{ background-color: transparent; color: {COLOR_YELLOW}; font-weight: bold; font-size: 13px; border: 2px solid {COLOR_YELLOW}; border-radius: 20px; padding: 10px 28px; }} QPushButton:hover {{ background-color: rgba(244,180,0,0.06); }}")
         
         bottom_btns.addWidget(create_btn)
         bottom_btns.addWidget(manage_btn)
@@ -194,24 +157,10 @@ class SelectionView(QWidget):
         
         main_layout.addStretch()
         
-        # 4. Botão "Voltar" (Canto inferior esquerdo)
         back_layout = QHBoxLayout()
-        
         back_btn = QPushButton("←\nVoltar")
         back_btn.setCursor(Qt.PointingHandCursor)
-        back_btn.setStyleSheet(f"""
-            QPushButton {{
-                color: {COLOR_TEXT_MUTED};
-                font-size: 12px;
-                font-weight: bold;
-                text-align: center;
-                border: none;
-                background: transparent;
-            }}
-            QPushButton:hover {{
-                color: white;
-            }}
-        """)
+        back_btn.setStyleSheet(f"QPushButton {{ color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: bold; text-align: center; border: none; background: transparent; }} QPushButton:hover {{ color: white; }}")
         back_btn.clicked.connect(self.back_requested.emit)
         
         back_layout.addWidget(back_btn)
@@ -219,6 +168,5 @@ class SelectionView(QWidget):
         main_layout.addLayout(back_layout)
 
     def paintEvent(self, event):
-        """Pinta o fundo escuro padrão da tela."""
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(COLOR_BG_MAIN))
