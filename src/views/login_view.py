@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QCheckBox, QFrame
 )
-from config import COLOR_BG_MAIN, COLOR_BORDER, COLOR_YELLOW, COLOR_TEXT_MUTED, LOGIN_BACKGROUND_IMAGE_PATH
+from config.config import COLOR_BG_MAIN, COLOR_BORDER, COLOR_YELLOW, COLOR_TEXT_MUTED, LOGIN_BACKGROUND_IMAGE_PATH
 
 class LoginView(QWidget):
     # Sinal emitido ao validar o login (conecta com a tela de entrada)

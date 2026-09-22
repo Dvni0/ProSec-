@@ -8,12 +8,12 @@ from PySide6.QtWidgets import (
 )
 import pyqtgraph as pg
 
-from yolo.src.config.config import (
+from config.config import (
     COLOR_BG_MAIN, COLOR_BG_SIDEBAR, COLOR_BG_CARD, COLOR_BORDER,
     COLOR_YELLOW, COLOR_RED, COLOR_GREEN, COLOR_TEXT_MUTED, CONFIG
 )
 
-from yolo.src.app4 import SafetyPipelineThread
+from controllers.pipelineThreadSource import SafetyPipelineThread
 
 class TagSelectionDialog(QDialog):
     def __init__(self, parent=None):
