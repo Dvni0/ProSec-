@@ -4,13 +4,13 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 # Importação das Telas (Front-end)
-from src.views.login_view import LoginView
-from src.views.selection_view import SelectionView
-from src.views.dashboard_view import DashboardMainLayout
+from views.login_view import LoginView
+from views.selection_view import SelectionView
+from views.dashboard_view import DashboardMainLayout
 
 # Importação da Lógica de Negócio (Back-end)
 
-from src.controllers.pipelineThreadSource import SafetyPipelineThread
+from controllers.pipelineThreadSource import SafetyPipelineThread
 
 class ApplicationOrchestrator(QMainWindow):
 
@@ -86,7 +86,7 @@ class ApplicationOrchestrator(QMainWindow):
         self.central_stack.setCurrentIndex(1)
 
     def _configure_and_start_cam(self, cam_id):
-        from src.views.dashboard_view import TagSelectionDialog
+        from views.dashboard_view import TagSelectionDialog
         
         dialog = TagSelectionDialog(self)
         if dialog.exec():
