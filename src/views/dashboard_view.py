@@ -3,16 +3,61 @@ from PySide6.QtCore import Qt, QPoint, QRectF, QSize, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QGridLayout, QScrollArea, QStackedWidget
+    QFrame, QGridLayout, QScrollArea, QStackedWidget, QDialog,
+    QCheckBox, QDialogButtonBox, QComboBox, QSizePolicy
 )
 import pyqtgraph as pg
 
-from config import (
+from yolo.src.config.config import (
     COLOR_BG_MAIN, COLOR_BG_SIDEBAR, COLOR_BG_CARD, COLOR_BORDER,
     COLOR_YELLOW, COLOR_RED, COLOR_GREEN, COLOR_TEXT_MUTED, CONFIG
 )
 
-from app4 import SafetyPipelineThread
+from yolo.src.app4 import SafetyPipelineThread
+
+class TagSelectionDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configurar Câmera")
+        self.setStyleSheet("background-color: #1A1C23; color: white;")
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("1. Origem do Vídeo:"))
+        self.cam_combo = QComboBox()
+        self.cam_combo.setStyleSheet("background-color: #121319; border: 1px solid #2B2E3C; padding: 5px;")
+        self.cam_combo.addItems(["Câmera 0 (Notebook)", "Câmera 1 (USB 1)", "Câmera 2 (USB 2)"])
+        layout.addWidget(self.cam_combo)
+        layout.addSpacing(10)
+
+        layout.addWidget(QLabel("2. Tags a serem verificadas (Quadrados):"))
+        self.chk_postura = QCheckBox("Postura (RULA)")
+        self.chk_capacete = QCheckBox("Capacete (Hard Hat)")
+        self.chk_colete = QCheckBox("Colete (Safety Vest)")
+        self.chk_oculos = QCheckBox("Óculos (Goggles)")
+        self.chk_luvas = QCheckBox("Luvas (Gloves)")
+        self.chk_botas = QCheckBox("Botas (Boots)")
+
+        for chk in [self.chk_postura, self.chk_capacete, self.chk_colete, self.chk_oculos, self.chk_luvas, self.chk_botas]:
+            chk.setChecked(True)
+            layout.addWidget(chk)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_settings(self):
+        return {
+            "camera_index": self.cam_combo.currentIndex(),
+            "tags": {
+                "postura": self.chk_postura.isChecked(),
+                "capacete": self.chk_capacete.isChecked(),
+                "colete": self.chk_colete.isChecked(),
+                "oculos": self.chk_oculos.isChecked(),
+                "luvas": self.chk_luvas.isChecked(),
+                "botas": self.chk_botas.isChecked()
+            }
+        }
 
 class ToggleSwitch(QWidget):
     def __init__(self, checked=False, parent=None):
@@ -35,6 +80,7 @@ class ToggleSwitch(QWidget):
         painter.drawEllipse(knob_x, 3, 20, 20)
 
 class CameraFeedWidget(QFrame):
+    close_requested = Signal()
     def __init__(self, title, location, parent=None):
         super().__init__(parent)
         self.title = title
@@ -61,9 +107,34 @@ class CameraFeedWidget(QFrame):
         top_bar_layout.addStretch()
         top_bar_layout.addWidget(self.status_badge)
         
-        self.feed_placeholder = QLabel("[ Área do Feed da Câmera ]")
+        self.btn_close = QPushButton("✖")
+        self.btn_close.setCursor(Qt.PointingHandCursor)
+        self.btn_close.setStyleSheet("background: transparent; color: #D9383A; font-weight: bold; font-size: 14px; border: none; padding-left: 10px;")
+        self.btn_close.clicked.connect(self.close_requested.emit)
+        top_bar_layout.addWidget(self.btn_close)
+        
+        self.stack = QStackedWidget()
+
+        self.btn_add = QPushButton("+ Adicionar Câmera")
+        self.btn_add.setStyleSheet(f"background-color: {COLOR_YELLOW}; color: #121319; font-weight: bold; border-radius: 8px; padding: 15px;")
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.setFixedSize(180, 45)
+
+        btn_container = QWidget()
+        btn_layout = QVBoxLayout(btn_container)
+        btn_layout.addWidget(self.btn_add, 0, Qt.AlignCenter)
+
+        self.feed_placeholder = QLabel()
         self.feed_placeholder.setAlignment(Qt.AlignCenter)
-        self.feed_placeholder.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background-color: #121319;")
+        self.feed_placeholder.setStyleSheet("background-color: #121319;")
+        
+        self.feed_placeholder = QLabel()
+        self.feed_placeholder.setAlignment(Qt.AlignCenter)
+        self.feed_placeholder.setStyleSheet("background-color: #121319;")
+        self.feed_placeholder.setMinimumSize(1, 1) # <--- Força o Qt a ignorar a resolução da imagem
+
+        self.stack.addWidget(btn_container)
+        self.stack.addWidget(self.feed_placeholder)
         
         bottom_bar = QWidget()
         bottom_bar.setFixedHeight(70)
@@ -79,12 +150,18 @@ class CameraFeedWidget(QFrame):
         bottom_layout.addWidget(cam_sub)
         
         layout.addWidget(top_bar)
-        layout.addWidget(self.feed_placeholder, 1)
+        layout.addWidget(self.stack, 1)
         layout.addWidget(bottom_bar)
 
     def set_frame(self, qt_img):
         pixmap = QPixmap.fromImage(qt_img)
-        self.feed_placeholder.setPixmap(pixmap.scaled(self.feed_placeholder.width(), self.feed_placeholder.height(), Qt.KeepAspectRatio))
+        w = max(self.feed_placeholder.width(), 1)
+        h = max(self.feed_placeholder.height(), 1)
+        
+        # Ajusta a imagem perfeitamente dentro do espaço fixado da caixa
+        self.feed_placeholder.setPixmap(
+            pixmap.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
 
 class CircularRiskGauge(QWidget):
     def __init__(self, value=0, parent=None):
@@ -213,6 +290,11 @@ class DashboardPage(QWidget):
         camera_grid.addWidget(self.cam2, 0, 1)
         camera_grid.addWidget(self.cam3, 1, 0)
         camera_grid.addWidget(self.cam4, 1, 1)
+        # Trava as 2 linhas e 2 colunas para manterem SEMPRE o mesmo tamanho
+        camera_grid.setRowStretch(0, 1)
+        camera_grid.setRowStretch(1, 1)
+        camera_grid.setColumnStretch(0, 1)
+        camera_grid.setColumnStretch(1, 1)
         left_col.addLayout(camera_grid)
         metrics_layout = QHBoxLayout()
         metrics_layout.setSpacing(15)
