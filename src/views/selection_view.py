@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt, Signal, QRectF, QPoint
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
-from config import COLOR_BG_MAIN, COLOR_BORDER, COLOR_YELLOW, COLOR_TEXT_MUTED, NOME_DO_OPERADOR
+from yolo.src.config.config import COLOR_BG_MAIN, COLOR_BORDER, COLOR_YELLOW, COLOR_TEXT_MUTED, NOME_DO_OPERADOR
 
 class OptionCard(QPushButton):
     """Card interativo com desenho vetorial estilizado dos ícones."""
