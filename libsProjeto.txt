@@ -1,0 +1,89 @@
+pip install PySide6 opencv-python ultralytics xgboost scikit-learn joblib numpy pyqtgraph pandas
+
+
+alteração do def run:
+
+# --- Modificação sugerida no salvamento do CSV do seu Dashboard ---
+current_time = time.time()
+if current_time - self.last_log_time >= 1.0:
+    with open(self.csv_file, mode='a', newline='') as f:
+        writer = csv.writer(f)
+        data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Salvando as features numéricas puras + o risco como referência provisória
+        # Vetor: [ang_princ, ang_sec, dx, dy, capacete, colete, target_risco]
+        writer.writerow([
+            data_hora, 
+            posture_features[0], posture_features[1], posture_features[2], posture_features[3],
+            epi_features[0], epi_features[1], 
+            pred_class # Esta será a classe provisória que um auditor pode corrigir depois
+        ])
+    self.last_log_time = current_time
+
+
+
+
+
+Novo script de treinamento do xgboost com base na Modificação acima:
+
+
+
+import os
+import pandas as pd
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+import joblib
+
+# 1. Carregar os dados reais gerados pelo uso do Dashboard
+csv_producao = 'historico_risco.csv'
+
+if not os.path.exists(csv_producao):
+    print(f"Erro: O arquivo {csv_producao} ainda não foi gerado pelo dashboard.")
+    exit()
+
+# Lendo o histórico
+df = pd.read_csv(csv_producao)
+
+# Supondo que atualizamos o CSV para conter as colunas numéricas puras:
+# ['Data_Hora', 'ang_1', 'ang_2', 'dx', 'dy', 'capacete', 'colete', 'classe_risco']
+# Se o seu CSV antigo tinha textos, remova as linhas vazias ou "Sem dados" antes.
+df = df.dropna()
+
+print(f"✓ Carregados {len(df)} registros do histórico real de operação.")
+
+# 2. Separar Features (X) e Target (y)
+# Removemos a coluna de tempo e a coluna que queremos prever
+X = df.drop(columns=['Data_Hora', 'classe_risco'])
+y = df['classe_risco'].astype(int)
+
+# 3. Divisão de treino e teste para validação cruzada
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# 4. Ajustar um novo Scaler com a distribuição geométrica real da câmera
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Salva o novo padronizador sobrescrevendo o anterior com os dados reais
+os.makedirs('modelos', exist_ok=True)
+joblib.dump(scaler, 'modelos/scaler_integrado.pkl')
+print("✓ Novo Scaler (Scikit-Learn) ajustado e salvo com dados de produção.")
+
+# 5. Atualizar o XGBoost com os dados reais
+xgb_model = xgb.XGBClassifier(
+    objective='multi:softprob',
+    num_class=4,
+    eval_metric='mlogloss',
+    max_depth=4,
+    learning_rate=0.05, # Taxa menor para ajuste fino (Fine-tuning)
+    n_estimators=150,
+    random_state=42
+)
+
+# O modelo aprende os padrões reais capturados pela webcam
+xgb_model.fit(X_train_scaled, y_train)
+
+# 6. Sobrescreve o modelo antigo na pasta de produção
+xgb_model.save_model('modelos/xgboost_risco_operacional.json')
+print("✓ Modelo XGBoost atualizado com sucesso baseado no histórico do Dashboard!")
