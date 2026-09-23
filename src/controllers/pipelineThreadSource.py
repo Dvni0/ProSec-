@@ -35,6 +35,8 @@ class SafetyPipelineThread(QThread):
             "postura": True, "capacete": True, "colete": True,
             "oculos": True, "luvas": True, "botas": True
         }
+        # Pontos normalizados (0.0 a 1.0), independentes da resolução da câmera.
+        self.dead_zones = []
         # Configuração da comunicação USB com ESP32
         self.esp32_conn = None
         try:
@@ -46,6 +48,43 @@ class SafetyPipelineThread(QThread):
     def set_tags(self, tags_dict):
         """Atualiza quais validações a IA deve processar no próximo frame"""
         self.active_tags.update(tags_dict)
+
+    def set_dead_zones(self, zones):
+        """Atualiza os polígonos nos quais a IA não deve procurar ocorrências."""
+        self.dead_zones = [
+            [(max(0.0, min(1.0, float(x))), max(0.0, min(1.0, float(y)))) for x, y in zone]
+            for zone in zones
+            if len(zone) >= 3
+        ]
+
+    def _apply_dead_zones(self, frame):
+        if not self.dead_zones:
+            return frame
+
+        masked_frame = frame.copy()
+        height, width = frame.shape[:2]
+        for zone in self.dead_zones:
+            polygon = np.array(
+                [[round(x * width), round(y * height)] for x, y in zone],
+                dtype=np.int32
+            )
+            cv2.fillPoly(masked_frame, [polygon], (0, 0, 0))
+        return masked_frame
+
+    def _draw_dead_zones(self, frame):
+        if not self.dead_zones:
+            return frame
+
+        overlay = frame.copy()
+        height, width = frame.shape[:2]
+        for zone in self.dead_zones:
+            polygon = np.array(
+                [[round(x * width), round(y * height)] for x, y in zone],
+                dtype=np.int32
+            )
+            cv2.fillPoly(overlay, [polygon], (80, 80, 80))
+            cv2.polylines(frame, [polygon], True, (180, 180, 180), 2)
+        return cv2.addWeighted(overlay, 0.28, frame, 0.72, 0)
 
 
         
@@ -61,8 +100,11 @@ class SafetyPipelineThread(QThread):
             if not ret:
                 continue
 
+            # A máscara impede que pixels de zonas mortas influenciem as detecções.
+            detection_frame = self._apply_dead_zones(frame)
+
             # 1. Inferência dos Modelos (Filtrada nativamente para bloquear o .plot() de classes indesejadas)
-            results_pose = self.model_pose(frame, verbose=False, conf=0.5) if self.active_tags["postura"] else None
+            results_pose = self.model_pose(detection_frame, verbose=False, conf=0.5) if self.active_tags["postura"] else None
             
             # IDs de classe assumidos: 0=Capacete, 1=Colete, 2=Óculos, 3=Luvas, 4=Botas. Ajuste se o seu modelo diferir.
             classes_permitidas = []
@@ -73,7 +115,7 @@ class SafetyPipelineThread(QThread):
             if self.active_tags["botas"]: classes_permitidas.append(4)
             
             if len(classes_permitidas) > 0:
-                results_epi = self.model_epi(frame, verbose=False, conf=0.5, classes=classes_permitidas)
+                results_epi = self.model_epi(detection_frame, verbose=False, conf=0.5, classes=classes_permitidas)
             else:
                 results_epi = None
             
@@ -116,7 +158,7 @@ class SafetyPipelineThread(QThread):
                             status_postura = f"Perigo ({int(angulo_tronco)}°)"
 
                 # Plota esqueleto no frame
-                frame = results_pose[0].plot()
+                frame = results_pose[0].plot(img=frame)
 
             # 3. Lógica de EPI
             # Inverte a lógica base: Se a tag está desativada, assume-se que está 'True' para não gerar multa indevida
@@ -156,6 +198,7 @@ class SafetyPipelineThread(QThread):
                 self.send_alert_to_esp32(risco_percentual, epi_ausentes, status_postura)
 
             # 6. Preparar imagem e emitir Sinais para a Interface
+            frame = self._draw_dead_zones(frame)
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
