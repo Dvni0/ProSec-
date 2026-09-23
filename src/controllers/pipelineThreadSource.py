@@ -268,7 +268,7 @@ class SafetyPipelineThread(QThread):
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
-            qt_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            qt_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
 
             self.frame_updated.emit(qt_img)
             self.metrics_updated.emit(status_postura, status_epi, risco_score, cor_final, risco_percentual)
