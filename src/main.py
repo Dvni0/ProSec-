@@ -85,6 +85,7 @@ class ApplicationOrchestrator(QMainWindow):
     def _handle_login_success(self, user):
         """Função chamada quando o usuário passa do login."""
         self.current_user = user
+        self.selection_view.set_user(user)
         self.dashboard_view.set_operator(user)
         self.central_stack.setCurrentIndex(1)
 

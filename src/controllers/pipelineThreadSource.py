@@ -268,7 +268,7 @@ class SafetyPipelineThread(QThread):
                 detection_frame = self._apply_dead_zones(frame)
 
                 results_pose = self.model_pose(
-                    detection_frame, verbose=False, conf=0.5, imgsz=416
+                    detection_frame, verbose=False, conf=0.5, imgsz=640
                 ) if self.active_tags["postura"] else None
 
                 classes_permitidas = []
@@ -281,7 +281,7 @@ class SafetyPipelineThread(QThread):
                 if len(classes_permitidas) > 0:
                     results_epi = self.model_epi(
                         detection_frame, verbose=False, conf=0.5,
-                        classes=classes_permitidas, imgsz=416
+                        classes=classes_permitidas, imgsz=640
                     )
                 else:
                     results_epi = None
