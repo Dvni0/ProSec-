@@ -345,6 +345,9 @@ class CircularRiskGauge(QWidget):
 class MetricCard(QFrame):
     def __init__(self, title, value, subtitle="", is_red=False, is_green=False, is_yellow=False, parent=None):
         super().__init__(parent)
+        self.setMinimumHeight(100)
+        self.setMaximumHeight(100)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border-radius: 12px; border: 1px solid {COLOR_BORDER};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 15, 20, 15)
@@ -356,6 +359,10 @@ class MetricCard(QFrame):
         elif is_green: val_color = COLOR_GREEN
         elif is_yellow: val_color = COLOR_YELLOW
         self.val_lbl = QLabel(str(value))
+        self.val_lbl.setWordWrap(False)
+        self.val_lbl.setMinimumWidth(0)
+        self.val_lbl.setFixedHeight(34)
+        self.val_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.val_lbl.setStyleSheet(f"color: {val_color}; font-size: 26px; font-weight: bold; border: none; background: transparent;")
         layout.addWidget(title_lbl)
         layout.addWidget(self.val_lbl)

@@ -319,6 +319,17 @@ class SafetyPipelineThread(QThread):
 
                 epi_score = 0
                 epi_ausentes = []
+                epi_requirements = {
+                    "capacete": (3, 7, "Capacete", 40),
+                    "colete": (9, 8, "Colete", 30),
+                    "oculos": (2, 6, "Óculos", 10),
+                    "luvas": (1, 5, "Luvas", 10),
+                    "botas": (0, 4, "Botas", 10),
+                }
+                epi_present = {
+                    tag: not self.active_tags[tag]
+                    for tag in epi_requirements
+                }
                 person_present = bool(
                     results_pose
                     and len(results_pose) > 0
@@ -362,21 +373,27 @@ class SafetyPipelineThread(QThread):
 
                 frame = self._draw_detection_overlays(frame, results_pose, results_epi)
 
-                tem_capacete = not self.active_tags["capacete"]
-                tem_colete = not self.active_tags["colete"]
                 if person_present and results_epi and results_epi[0].boxes is not None:
-                    for box in results_epi[0].boxes:
-                        cls_id = int(box.cls[0].item())
-                        if cls_id == 3 and self.active_tags["capacete"]: tem_capacete = True
-                        elif cls_id == 9 and self.active_tags["colete"]: tem_colete = True
+                    detected_classes = {
+                        int(box.cls[0].item()) for box in results_epi[0].boxes
+                    }
+                    for tag, (positive_class, negative_class, _, _) in epi_requirements.items():
+                        if not self.active_tags[tag]:
+                            continue
+                        if positive_class in detected_classes:
+                            epi_present[tag] = True
+                        elif negative_class in detected_classes:
+                            epi_present[tag] = False
                     frame = results_epi[0].plot(img=frame)
 
-                if person_present and not tem_capacete:
-                    epi_score += 40
-                    epi_ausentes.append("Capacete")
-                if person_present and not tem_colete:
-                    epi_score += 30
-                    epi_ausentes.append("Colete")
+                if person_present:
+                    for tag, (_, _, label, penalty) in epi_requirements.items():
+                        if not epi_present[tag]:
+                            epi_score += penalty
+                            epi_ausentes.append(label)
+
+                tem_capacete = epi_present["capacete"]
+                tem_colete = epi_present["colete"]
 
                 status_epi = "EPI: OK" if not person_present or epi_score == 0 else f"Falta: {', '.join(epi_ausentes)}"
 
