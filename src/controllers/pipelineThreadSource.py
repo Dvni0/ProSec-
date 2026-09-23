@@ -3,6 +3,8 @@ import time
 import json
 import serial
 import math
+import threading
+from queue import Empty, Full, Queue
 import numpy as np
 import warnings
 import joblib
@@ -244,6 +246,21 @@ class SafetyPipelineThread(QThread):
 
         return None, None
 
+    def _capture_frames(self, cap, frame_queue, capture_stop):
+        while not capture_stop.is_set() and not self.stop_flag:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                time.sleep(0.01)
+                continue
+            try:
+                frame_queue.get_nowait()
+            except Empty:
+                pass
+            try:
+                frame_queue.put_nowait(frame)
+            except Full:
+                pass
+
     def run(self):
         cap, open_index = self._open_camera()
         if cap is None or not cap.isOpened():
@@ -251,11 +268,19 @@ class SafetyPipelineThread(QThread):
             return
 
         self.camera_index = open_index
+        frame_queue = Queue(maxsize=1)
+        capture_stop = threading.Event()
+        capture_thread = threading.Thread(
+            target=self._capture_frames,
+            args=(cap, frame_queue, capture_stop),
+            daemon=True,
+        )
+        capture_thread.start()
 
         while not self.stop_flag:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                time.sleep(0.05)
+            try:
+                frame = frame_queue.get(timeout=0.1)
+            except Empty:
                 continue
 
             status_postura = "Postura: OK"
@@ -268,19 +293,19 @@ class SafetyPipelineThread(QThread):
                 detection_frame = self._apply_dead_zones(frame)
 
                 results_pose = self.model_pose(
-                    detection_frame, verbose=False, conf=0.5, imgsz=640
+                    detection_frame, verbose=False, conf=0.40, imgsz=640
                 ) if self.active_tags["postura"] else None
 
                 classes_permitidas = []
-                if self.active_tags["capacete"]: classes_permitidas.append(0)
-                if self.active_tags["colete"]: classes_permitidas.append(1)
-                if self.active_tags["oculos"]: classes_permitidas.append(2)
-                if self.active_tags["luvas"]: classes_permitidas.append(3)
-                if self.active_tags["botas"]: classes_permitidas.append(4)
+                if self.active_tags["botas"]: classes_permitidas.extend((0, 4))
+                if self.active_tags["luvas"]: classes_permitidas.extend((1, 5))
+                if self.active_tags["oculos"]: classes_permitidas.extend((2, 6))
+                if self.active_tags["capacete"]: classes_permitidas.extend((3, 7))
+                if self.active_tags["colete"]: classes_permitidas.extend((8, 9))
 
                 if len(classes_permitidas) > 0:
                     results_epi = self.model_epi(
-                        detection_frame, verbose=False, conf=0.5,
+                        detection_frame, verbose=False, conf=0.25,
                         classes=classes_permitidas, imgsz=640
                     )
                 else:
@@ -309,7 +334,8 @@ class SafetyPipelineThread(QThread):
                         quadril_y = (keypoints[11][1] + keypoints[12][1]) / 2
                         quadril_x = (keypoints[11][0] + keypoints[12][0]) / 2
 
-                        if quadril_y > 0 and ombro_y > 0:
+                        tronco_valido = quadril_y > 0 and ombro_y > 0
+                        if tronco_valido:
                             dx = ombro_x - quadril_x
                             dy = quadril_y - ombro_y
                             angulo_tronco = math.degrees(math.atan2(abs(dx), dy))
@@ -318,6 +344,7 @@ class SafetyPipelineThread(QThread):
                         if ombro_y > 0 and nariz_y > 0:
                             angulo_secundario = math.degrees(math.atan2(abs(nariz_x - ombro_x), abs(ombro_y - nariz_y)))
 
+                        if tronco_valido:
                             if angulo_tronco < 10:
                                 postura_score = 10
                                 status_postura = f"Normal ({int(angulo_tronco)}°)"
@@ -340,8 +367,8 @@ class SafetyPipelineThread(QThread):
                 if person_present and results_epi and results_epi[0].boxes is not None:
                     for box in results_epi[0].boxes:
                         cls_id = int(box.cls[0].item())
-                        if cls_id == 0 and self.active_tags["capacete"]: tem_capacete = True
-                        elif cls_id == 1 and self.active_tags["colete"]: tem_colete = True
+                        if cls_id == 3 and self.active_tags["capacete"]: tem_capacete = True
+                        elif cls_id == 9 and self.active_tags["colete"]: tem_colete = True
                     frame = results_epi[0].plot(img=frame)
 
                 if person_present and not tem_capacete:
@@ -412,6 +439,8 @@ class SafetyPipelineThread(QThread):
 
             self.metrics_updated.emit(status_postura, status_epi, risco_score, cor_final, risco_percentual)
 
+        capture_stop.set()
+        capture_thread.join(timeout=2)
         cap.release()
         if self.esp32_conn and self.esp32_conn.is_open:
             self.esp32_conn.close()

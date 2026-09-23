@@ -455,7 +455,7 @@ class DashboardPage(QWidget):
         self.card_posture = MetricCard("Posture Status", "Aguardando", is_yellow=True)
         self.card_epi = MetricCard("EPI Status", "Aguardando", is_green=True)
         self.card_alerts = MetricCard("Open Alerts", CONFIG["open_alerts"], is_red=True)
-        self.card_compliance = MetricCard("Global Compliance", CONFIG["compliance"])
+        self.card_compliance = MetricCard("Global Compliance", "Sem histórico")
         metrics_layout.addWidget(self.card_posture)
         metrics_layout.addWidget(self.card_epi)
         metrics_layout.addWidget(self.card_alerts)
@@ -477,6 +477,9 @@ class DashboardPage(QWidget):
         right_panel_layout.addStretch()
         content_layout.addWidget(right_panel, 1)
         main_layout.addLayout(content_layout)
+
+    def set_global_compliance(self, value):
+        self.card_compliance.set_value(value or "Sem histórico")
 
 class AlertsPage(QWidget):
     def __init__(self, parent=None):
@@ -664,6 +667,16 @@ class ReportsPage(QWidget):
             ).fetchall()
         return [int(row[0]) for row in reversed(rows)]
 
+    def get_historical_compliance(self):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            average_risk = connection.execute(
+                "SELECT AVG(risk_percentage) FROM risk_occurrences"
+            ).fetchone()[0]
+        if average_risk is None:
+            return None
+        compliance = max(0, min(100, 100 - float(average_risk)))
+        return f"{compliance:.1f}%"
+
     def _risk_level(self, risk_val):
         if risk_val <= 30:
             return "BAIXO"
@@ -752,14 +765,17 @@ class ReportsPage(QWidget):
     def update_chart(self, risk_val):
         risk_val = max(0, min(100, int(risk_val)))
         risk_level = self._risk_level(risk_val)
+        occurrence_saved = False
         if risk_level != self._last_risk_level:
             self._save_occurrence(risk_val, risk_level)
             self._last_risk_level = risk_level
             self._refresh_daily_occurrences()
+            occurrence_saved = True
 
         self.risk_data = self.risk_data[1:]
         self.risk_data.append(risk_val)
         self.data_line.setData(self.time_data, self.risk_data)
+        return occurrence_saved
 
 # ----------------- MAIN LAYOUT -----------------
 class DashboardMainLayout(QWidget):
@@ -777,7 +793,11 @@ class DashboardMainLayout(QWidget):
         self.page_dashboard.cam1.status_badge.setStyleSheet(f"color: {cor}; font-weight: bold; font-size: 11px; background-color: {cor}25; border-radius: 4px; padding: 4px 8px;")
         
         # Atualiza gráfico ao vivo[cite: 1]
-        self.page_reports.update_chart(risco_percentual)
+        occurrence_saved = self.page_reports.update_chart(risco_percentual)
+        if occurrence_saved:
+            self.page_dashboard.set_global_compliance(
+                self.page_reports.get_historical_compliance()
+            )
 
     def update_alert(self, active, risk_percentage, risk_level, details, recorded_at):
         self.page_alerts.update_alert(
@@ -830,6 +850,9 @@ class DashboardMainLayout(QWidget):
         self.page_alerts = AlertsPage()
         self.page_ops = OpsPage()
         self.page_reports = ReportsPage()
+        self.page_dashboard.set_global_compliance(
+            self.page_reports.get_historical_compliance()
+        )
         
         self.stack.addWidget(self.page_dashboard)
         self.stack.addWidget(self.page_alerts)
