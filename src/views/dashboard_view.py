@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 import pyqtgraph as pg
 
-from config.config import (
+from configs.config import (
     COLOR_BG_MAIN, COLOR_BG_SIDEBAR, COLOR_BG_CARD, COLOR_BORDER,
     COLOR_YELLOW, COLOR_RED, COLOR_GREEN, COLOR_TEXT_MUTED, CONFIG
 )
