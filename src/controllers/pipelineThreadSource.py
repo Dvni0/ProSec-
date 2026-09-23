@@ -65,10 +65,13 @@ class SafetyPipelineThread(QThread):
     frame_updated = Signal(QImage)
     # status_postura, status_epi, risco_texto, cor_hex, risco_percentual
     metrics_updated = Signal(str, str, str, str, int) 
+    # ativo, risco_percentual, nivel, detalhes, horario
+    alert_updated = Signal(bool, int, str, str, str)
 
     def __init__(self, porta_serial='COM3', baudrate=115200, camera_index=0):
         super().__init__()
         self.stop_flag = False
+        self.alert_active = False
         self.camera_index = camera_index
         source_root = Path(__file__).resolve().parents[1]
         
@@ -374,6 +377,17 @@ class SafetyPipelineThread(QThread):
 
                 if violacao:
                     self.send_alert_to_esp32(risco_percentual, epi_ausentes, status_postura)
+
+                if violacao != self.alert_active:
+                    details = ", ".join(epi_ausentes) or status_postura
+                    self.alert_updated.emit(
+                        violacao,
+                        risco_percentual,
+                        risco_score,
+                        details,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    self.alert_active = violacao
 
             except Exception as exc:
                 print(f"⚠ Falha ao processar o frame da câmera: {exc}")

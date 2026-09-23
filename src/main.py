@@ -18,7 +18,7 @@ class ApplicationOrchestrator(QMainWindow):
 
         super().__init__()
         self.setWindowTitle("ProSec - Industrial Safety Monitoring")
-        self.resize(1300, 850)
+        self.resize(1450, 920)
 
         self.pipelines = {} # Dicionário para guardar as threads de múltiplas câmeras
         self.pipeline_thread = None
@@ -78,6 +78,7 @@ class ApplicationOrchestrator(QMainWindow):
             self.pipeline_thread.frame_updated.connect(self.dashboard_view.page_dashboard.cam1.set_frame)
 
             self.pipeline_thread.metrics_updated.connect(self.dashboard_view.update_live_metrics)
+            self.pipeline_thread.alert_updated.connect(self.dashboard_view.update_alert)
 
             self.pipeline_thread.start()
 
@@ -104,6 +105,7 @@ class ApplicationOrchestrator(QMainWindow):
             thread = SafetyPipelineThread(porta_serial='COM3', camera_index=settings["camera_source"])
             thread.frame_updated.connect(cam_widget.set_frame)
             thread.metrics_updated.connect(self.dashboard_view.update_live_metrics)
+            thread.alert_updated.connect(self.dashboard_view.update_alert)
             cam_widget.dead_zones_changed.connect(thread.set_dead_zones)
             
             thread.set_tags(settings["tags"])
