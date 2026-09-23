@@ -88,8 +88,117 @@ class ToggleSwitch(QWidget):
         knob_x = 28 if self.checked else 4
         painter.drawEllipse(knob_x, 3, 20, 20)
 
+class ZoneFeedWidget(QWidget):
+    dead_zones_changed = Signal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.pixmap = QPixmap()
+        self.dead_zones = []
+        self.current_zone = []
+        self.drawing_enabled = False
+        self.setMinimumSize(1, 1)
+        self.setMouseTracking(True)
+
+    def set_frame(self, qt_img):
+        self.pixmap = QPixmap.fromImage(qt_img)
+        self.update()
+    
+    def clear_frame(self):
+        self.pixmap = QPixmap()
+        self.update()
+
+    def _image_rect(self):
+        if self.pixmap.isNull():
+            return QRectF(self.rect())
+        scaled_size = self.pixmap.size()
+        scaled_size.scale(self.size(), Qt.KeepAspectRatio)
+        x = (self.width() - scaled_size.width()) / 2
+        y = (self.height() - scaled_size.height()) / 2
+        return QRectF(x, y, scaled_size.width(), scaled_size.height())
+
+    def _normalized_point(self, position):
+        image_rect = self._image_rect()
+        if not image_rect.contains(position):
+            return None
+        x = (position.x() - image_rect.left()) / image_rect.width()
+        y = (position.y() - image_rect.top()) / image_rect.height()
+        return (max(0.0, min(1.0, x)), max(0.0, min(1.0, y)))
+
+    def _screen_point(self, normalized_point):
+        image_rect = self._image_rect()
+        return QPoint(
+            round(image_rect.left() + normalized_point[0] * image_rect.width()),
+            round(image_rect.top() + normalized_point[1] * image_rect.height())
+        )
+
+    def begin_zone_drawing(self):
+        self.drawing_enabled = not self.drawing_enabled
+        if not self.drawing_enabled:
+            self._finish_current_zone()
+        self.update()
+
+    def clear_zones(self):
+        self.current_zone = []
+        self.dead_zones = []
+        self.dead_zones_changed.emit(self.dead_zones)
+        self.update()
+
+    def _finish_current_zone(self):
+        if len(self.current_zone) >= 3:
+            self.dead_zones.append(self.current_zone)
+            self.dead_zones_changed.emit(self.dead_zones)
+        self.current_zone = []
+        self.update()
+
+    def mousePressEvent(self, event):
+        if not self.drawing_enabled:
+            return
+        if event.button() == Qt.RightButton:
+            self._finish_current_zone()
+            return
+        if event.button() == Qt.LeftButton:
+            point = self._normalized_point(event.position())
+            if point is not None:
+                self.current_zone.append(point)
+                self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        if self.drawing_enabled and event.button() == Qt.LeftButton:
+            self._finish_current_zone()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#121319"))
+        image_rect = self._image_rect()
+        if not self.pixmap.isNull():
+            painter.drawPixmap(image_rect, self.pixmap)
+
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#B8BEC9"), 2))
+        painter.setBrush(QBrush(QColor(80, 80, 80, 90)))
+        for zone in self.dead_zones:
+            points = [self._screen_point(point) for point in zone]
+            painter.drawPolygon(points)
+
+        if self.current_zone:
+            painter.setPen(QPen(QColor("#F4B400"), 2, Qt.DashLine))
+            points = [self._screen_point(point) for point in self.current_zone]
+            painter.drawPolyline(points)
+            painter.setBrush(QBrush(QColor("#F4B400")))
+            for point in points:
+                painter.drawEllipse(point, 4, 4)
+
+        if self.drawing_enabled:
+            painter.setPen(QColor("white"))
+            painter.setBrush(QBrush(QColor(18, 19, 25, 210)))
+            painter.drawRoundedRect(12, 12, 250, 28, 5, 5)
+            painter.drawText(22, 31, "Clique para marcar | duplo clique fecha")
+
+
 class CameraFeedWidget(QFrame):
     close_requested = Signal()
+    dead_zones_changed = Signal(object)
     def __init__(self, title, location, parent=None):
         super().__init__(parent)
         self.title = title
@@ -115,6 +224,19 @@ class CameraFeedWidget(QFrame):
         top_bar_layout.addWidget(live_badge)
         top_bar_layout.addStretch()
         top_bar_layout.addWidget(self.status_badge)
+
+        self.btn_zones = QPushButton("Zonas mortas")
+        self.btn_zones.setCursor(Qt.PointingHandCursor)
+        self.btn_zones.setStyleSheet(f"background-color: {COLOR_YELLOW}; color: #121319; font-weight: bold; border: none; border-radius: 4px; padding: 4px 8px;")
+        self.btn_zones.setToolTip("Desenhar uma área que não será analisada")
+        self.btn_zones.clicked.connect(self._toggle_zone_drawing)
+        top_bar_layout.addWidget(self.btn_zones)
+
+        self.btn_clear_zones = QPushButton("Limpar")
+        self.btn_clear_zones.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_zones.setStyleSheet("background: transparent; color: #B8BEC9; border: none; padding: 4px;")
+        self.btn_clear_zones.clicked.connect(self._clear_zones)
+        top_bar_layout.addWidget(self.btn_clear_zones)
         
         self.btn_close = QPushButton("✖")
         self.btn_close.setCursor(Qt.PointingHandCursor)
@@ -133,14 +255,8 @@ class CameraFeedWidget(QFrame):
         btn_layout = QVBoxLayout(btn_container)
         btn_layout.addWidget(self.btn_add, 0, Qt.AlignCenter)
 
-        self.feed_placeholder = QLabel()
-        self.feed_placeholder.setAlignment(Qt.AlignCenter)
-        self.feed_placeholder.setStyleSheet("background-color: #121319;")
-        
-        self.feed_placeholder = QLabel()
-        self.feed_placeholder.setAlignment(Qt.AlignCenter)
-        self.feed_placeholder.setStyleSheet("background-color: #121319;")
-        self.feed_placeholder.setMinimumSize(1, 1) # <--- Força o Qt a ignorar a resolução da imagem
+        self.feed_placeholder = ZoneFeedWidget()
+        self.feed_placeholder.dead_zones_changed.connect(self.dead_zones_changed.emit)
 
         self.stack.addWidget(btn_container)
         self.stack.addWidget(self.feed_placeholder)
@@ -163,14 +279,14 @@ class CameraFeedWidget(QFrame):
         layout.addWidget(bottom_bar)
 
     def set_frame(self, qt_img):
-        pixmap = QPixmap.fromImage(qt_img)
-        w = max(self.feed_placeholder.width(), 1)
-        h = max(self.feed_placeholder.height(), 1)
-        
-        # Ajusta a imagem perfeitamente dentro do espaço fixado da caixa
-        self.feed_placeholder.setPixmap(
-            pixmap.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
+        self.feed_placeholder.set_frame(qt_img)
+
+    def _toggle_zone_drawing(self):
+        self.feed_placeholder.begin_zone_drawing()
+        self.btn_zones.setText("Concluir" if self.feed_placeholder.drawing_enabled else "Zonas mortas")
+
+    def _clear_zones(self):
+        self.feed_placeholder.clear_zones()
 
 class CircularRiskGauge(QWidget):
     def __init__(self, value=0, parent=None):
