@@ -71,7 +71,7 @@ class ApplicationOrchestrator(QMainWindow):
 
             print("Iniciando carregamento dos modelos YOLO e XGBoost...")
 
-            self.pipeline_thread = SafetyPipelineThread(porta_serial='COM3')
+            self.pipeline_thread = SafetyPipelineThread(porta_serial='/dev/ttyUSB0')
 
             # Conecta os sinais da IA (app4) DIRETAMENTE aos métodos da interface (dashboard_view)
 
@@ -105,7 +105,7 @@ class ApplicationOrchestrator(QMainWindow):
                 del self.pipelines[cam_id]
                 
             # A fonte pode ser um índice local ou uma URL RTSP.
-            thread = SafetyPipelineThread(porta_serial='COM3', camera_index=settings["camera_source"])
+            thread = SafetyPipelineThread(porta_serial='/dev/ttyUSB0', camera_index=settings["camera_source"])
             thread.frame_updated.connect(cam_widget.set_frame)
             thread.metrics_updated.connect(self.dashboard_view.update_live_metrics)
             thread.alert_updated.connect(self.dashboard_view.update_alert)

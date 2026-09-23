@@ -65,12 +65,13 @@ class SafetyPipelineThread(QThread):
     cálculo de risco (RULA) e comunicação de hardware (ESP32).
     """
     frame_updated = Signal(QImage)
+    SERIAL_ALERT_THRESHOLD = 70
     # status_postura, status_epi, risco_texto, cor_hex, risco_percentual
     metrics_updated = Signal(str, str, str, str, int) 
     # ativo, risco_percentual, nivel, detalhes, horario
     alert_updated = Signal(bool, int, str, str, str)
 
-    def __init__(self, porta_serial='COM3', baudrate=115200, camera_index=0):
+    def __init__(self, porta_serial='/dev/ttyUSB0', baudrate=115200, camera_index=0):
         super().__init__()
         self.stop_flag = False
         self.alert_active = False
@@ -464,6 +465,9 @@ class SafetyPipelineThread(QThread):
 
     def send_alert_to_esp32(self, risco, epis_faltantes, postura):
         """Envia um payload JSON pela porta serial para o ESP32."""
+        if risco <= self.SERIAL_ALERT_THRESHOLD:
+            return
+
         if self.esp32_conn and self.esp32_conn.is_open:
             payload = {
                 "alarm_trigger": True,
