@@ -94,26 +94,43 @@ class ZoneFeedWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pixmap = QPixmap()
-        self.error_text = ""
         self.dead_zones = []
         self.current_zone = []
         self.drawing_enabled = False
+        self.image_label = QLabel(self)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet("border: none; background: transparent;")
+        self.image_label.setScaledContents(False)
         self.setMinimumSize(1, 1)
         self.setMouseTracking(True)
 
+    def _apply_pixmap_to_label(self):
+        if self.pixmap.isNull():
+            self.image_label.clear()
+            return
+        target_size = self.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            target_size = self.pixmap.size()
+        scaled = self.pixmap.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.image_label.setPixmap(scaled)
+        self.image_label.setGeometry(0, 0, self.width(), self.height())
+
     def set_frame(self, qt_img):
+        if qt_img is None:
+            self.clear_frame()
+            return
         self.pixmap = QPixmap.fromImage(qt_img)
-        self.error_text = ""
+        self._apply_pixmap_to_label()
         self.update()
 
-    def set_error(self, message):
-        self.pixmap = QPixmap()
-        self.error_text = message
-        self.update()
-    
     def clear_frame(self):
         self.pixmap = QPixmap()
+        self.image_label.clear()
         self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_pixmap_to_label()
 
     def _image_rect(self):
         if self.pixmap.isNull():
@@ -177,12 +194,6 @@ class ZoneFeedWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#121319"))
-        image_rect = self._image_rect()
-        if not self.pixmap.isNull():
-            painter.drawPixmap(image_rect, self.pixmap)
-        elif self.error_text:
-            painter.setPen(QColor("#D9383A"))
-            painter.drawText(self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.error_text)
 
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(QColor("#B8BEC9"), 2))

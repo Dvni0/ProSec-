@@ -63,7 +63,6 @@ class SafetyPipelineThread(QThread):
     cálculo de risco (RULA) e comunicação de hardware (ESP32).
     """
     frame_updated = Signal(QImage)
-    camera_error = Signal(str)
     # status_postura, status_epi, risco_texto, cor_hex, risco_percentual
     metrics_updated = Signal(str, str, str, str, int) 
 
@@ -136,143 +135,250 @@ class SafetyPipelineThread(QThread):
             cv2.polylines(frame, [polygon], True, (180, 180, 180), 2)
         return cv2.addWeighted(overlay, 0.28, frame, 0.72, 0)
 
+    def _draw_detection_overlays(self, frame, results_pose, results_epi):
+        output = frame.copy()
+        pose_names = getattr(self.model_pose, 'names', {}) or {}
+        epi_names = getattr(self.model_epi, 'names', {}) or {}
 
-        
+        def put_label(x1, y1, text, color):
+            (text_w, text_h), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+            x0 = max(0, x1)
+            y0 = max(text_h + 10, y1)
+            cv2.rectangle(output, (x0, y0 - text_h - 8), (x0 + text_w + 10, y0 + baseline), (0, 0, 0), -1)
+            cv2.putText(output, text, (x0 + 5, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        if results_pose and len(results_pose) > 0:
+            try:
+                pose = results_pose[0]
+                if getattr(pose, 'boxes', None) is not None and len(pose.boxes) > 0:
+                    for box in pose.boxes:
+                        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].cpu().tolist()]
+                        conf = float(box.conf[0].item())
+                        cls_id = int(box.cls[0].item())
+                        class_name = pose_names.get(cls_id, f'class_{cls_id}')
+                        label = f"{class_name} {conf:.2f}"
+                        color = (255, 255, 0)
+                        cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
+                        put_label(x1, y1, label, color)
+
+                if getattr(pose, 'keypoints', None) is not None:
+                    keypoints = pose.keypoints.xy[0].cpu().numpy()
+                    if keypoints is not None and len(keypoints) > 0:
+                        pairs = [
+                            (0, 1), (0, 2), (1, 3), (2, 4), (5, 6), (5, 7), (7, 9),
+                            (6, 8), (8, 10), (5, 11), (6, 12), (11, 12), (11, 13),
+                            (13, 15), (12, 14), (14, 16)
+                        ]
+                        for a, b in pairs:
+                            if a < len(keypoints) and b < len(keypoints):
+                                x1, y1 = map(int, keypoints[a])
+                                x2, y2 = map(int, keypoints[b])
+                                cv2.line(output, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                        for x, y in keypoints[:17]:
+                            cv2.circle(output, (int(x), int(y)), 2, (255, 255, 0), -1)
+            except Exception as exc:
+                print(f"⚠ Falha ao desenhar overlay de pose: {exc}")
+
+        if results_epi and len(results_epi) > 0:
+            try:
+                epi = results_epi[0]
+                if getattr(epi, 'boxes', None) is not None and len(epi.boxes) > 0:
+                    for box in epi.boxes:
+                        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].cpu().tolist()]
+                        cls_id = int(box.cls[0].item())
+                        conf = float(box.conf[0].item())
+                        class_name = epi_names.get(cls_id, f'class_{cls_id}')
+                        label = f"{class_name} {conf:.2f}"
+                        color = (0, 255, 0) if cls_id in (0, 1) else (255, 165, 0)
+                        cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
+                        put_label(x1, y1, label, color)
+            except Exception as exc:
+                print(f"⚠ Falha ao desenhar overlay de EPI: {exc}")
+
+        return output
+
+    def _frame_to_qimage(self, frame):
+        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb_image = np.ascontiguousarray(rgb_image)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+        return QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
+
+    def _open_camera(self):
+        candidates = []
+        preferred = self.camera_index
+        if preferred is not None:
+            candidates.append(preferred)
+        candidates.extend([0, 1, 2, 3, 4, 5])
+
+        seen = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                cap = cv2.VideoCapture(candidate, cv2.CAP_DSHOW if hasattr(cv2, 'CAP_DSHOW') else cv2.CAP_ANY)
+                if cap is not None and cap.isOpened():
+                    print(f"✓ Câmera aberta no índice {candidate}")
+                    return cap, candidate
+            except Exception:
+                pass
+
+        for candidate in candidates:
+            try:
+                cap = cv2.VideoCapture(candidate)
+                if cap is not None and cap.isOpened():
+                    print(f"✓ Câmera aberta no índice {candidate} (fallback)")
+                    return cap, candidate
+            except Exception:
+                pass
+
+        return None, None
+
     def run(self):
-        # Inicializa a câmera selecionada no menu
-        cap = cv2.VideoCapture(self.camera_index)
-        if not cap.isOpened():
-            self.camera_error.emit(f"Não foi possível abrir a câmera: {self.camera_index}")
+        cap, open_index = self._open_camera()
+        if cap is None or not cap.isOpened():
             print("❌ Nenhuma câmera funcional encontrada.")
             return
 
+        self.camera_index = open_index
+
         while not self.stop_flag:
             ret, frame = cap.read()
-            if not ret:
+            if not ret or frame is None:
+                time.sleep(0.05)
                 continue
 
-            # A máscara impede que pixels de zonas mortas influenciem as detecções.
-            detection_frame = self._apply_dead_zones(frame)
-
-            # 1. Inferência dos Modelos (Filtrada nativamente para bloquear o .plot() de classes indesejadas)
-            results_pose = self.model_pose(detection_frame, verbose=False, conf=0.5) if self.active_tags["postura"] else None
-            
-            # IDs de classe assumidos: 0=Capacete, 1=Colete, 2=Óculos, 3=Luvas, 4=Botas. Ajuste se o seu modelo diferir.
-            classes_permitidas = []
-            if self.active_tags["capacete"]: classes_permitidas.append(0)
-            if self.active_tags["colete"]: classes_permitidas.append(1)
-            if self.active_tags["oculos"]: classes_permitidas.append(2)
-            if self.active_tags["luvas"]: classes_permitidas.append(3)
-            if self.active_tags["botas"]: classes_permitidas.append(4)
-            
-            if len(classes_permitidas) > 0:
-                results_epi = self.model_epi(detection_frame, verbose=False, conf=0.5, classes=classes_permitidas)
-            else:
-                results_epi = None
-            
-            # Variáveis iniciais
-            postura_score = 0
             status_postura = "Postura: OK"
-            angulo_tronco = 0.0
-            angulo_secundario = 0.0
-            dx = 0.0
-            dy = 0.0
-            
-            # EPI (0: Sem Capacete, 1: Sem Colete) - Supondo ID das classes
-            epi_score = 0
-            epi_ausentes = []
-            
-            # 2. Lógica de Postura (Baseado no RULA - Tronco e Pescoço)
-            if self.active_tags["postura"] and results_pose and results_pose[0].keypoints is not None and len(results_pose[0].keypoints.xy) > 0:
-                keypoints = results_pose[0].keypoints.xy[0].cpu().numpy()
-                if len(keypoints) > 12: # Verifica se há pontos suficientes mapeados
-                    # Pega ombro (ID 5 ou 6) e quadril (ID 11 ou 12) para calcular a inclinação do tronco
-                    ombro_y = (keypoints[5][1] + keypoints[6][1]) / 2
-                    ombro_x = (keypoints[5][0] + keypoints[6][0]) / 2
-                    quadril_y = (keypoints[11][1] + keypoints[12][1]) / 2
-                    quadril_x = (keypoints[11][0] + keypoints[12][0]) / 2
-                    
-                    if quadril_y > 0 and ombro_y > 0:
-                        dx = ombro_x - quadril_x
-                        dy = quadril_y - ombro_y
-                        angulo_tronco = math.degrees(math.atan2(abs(dx), dy))
+            status_epi = "EPI: OK"
+            risco_score = "BAIXO"
+            cor_final = COLOR_GREEN
+            risco_percentual = 0
 
-                    nariz_x, nariz_y = keypoints[0]
-                    if ombro_y > 0 and nariz_y > 0:
-                        angulo_secundario = math.degrees(math.atan2(abs(nariz_x - ombro_x), abs(ombro_y - nariz_y)))
-                        
-                        # Tabela simplificada RULA para Tronco:
-                        if angulo_tronco < 10:
-                            postura_score = 10
-                            status_postura = f"Normal ({int(angulo_tronco)}°)"
-                        elif 10 <= angulo_tronco <= 20:
-                            postura_score = 30
-                            status_postura = f"Atenção ({int(angulo_tronco)}°)"
-                        elif 20 < angulo_tronco <= 60:
-                            postura_score = 60
-                            status_postura = f"Risco ({int(angulo_tronco)}°)"
-                        else:
-                            postura_score = 90
-                            status_postura = f"Perigo ({int(angulo_tronco)}°)"
+            try:
+                detection_frame = self._apply_dead_zones(frame)
 
-                # Plota esqueleto no frame
-                frame = results_pose[0].plot(img=frame)
+                results_pose = self.model_pose(detection_frame, verbose=False, conf=0.5) if self.active_tags["postura"] else None
 
-            # 3. Lógica de EPI
-            # Inverte a lógica base: Se a tag está desativada, assume-se que está 'True' para não gerar multa indevida
-            tem_capacete = not self.active_tags["capacete"] 
-            tem_colete = not self.active_tags["colete"]
-            if results_epi and results_epi[0].boxes is not None:
-                for box in results_epi[0].boxes:
-                    cls_id = int(box.cls[0].item())
-                    if cls_id == 0 and self.active_tags["capacete"]: tem_capacete = True
-                    elif cls_id == 1 and self.active_tags["colete"]: tem_colete = True
-                frame = results_epi[0].plot(img=frame)
-            
-            if not tem_capacete: 
-                epi_score += 40
-                epi_ausentes.append("Capacete")
-            if not tem_colete: 
-                epi_score += 30
-                epi_ausentes.append("Colete")
-                
-            status_epi = "EPI: OK" if epi_score == 0 else f"Falta: {', '.join(epi_ausentes)}"
+                classes_permitidas = []
+                if self.active_tags["capacete"]: classes_permitidas.append(0)
+                if self.active_tags["colete"]: classes_permitidas.append(1)
+                if self.active_tags["oculos"]: classes_permitidas.append(2)
+                if self.active_tags["luvas"]: classes_permitidas.append(3)
+                if self.active_tags["botas"]: classes_permitidas.append(4)
 
-            # 4. Previsão histórica e cálculo do risco global
-            risco_imediato = min(postura_score + epi_score, 100)
-            risco_predictivo = self.risk_predictor.predict([
-                angulo_tronco,
-                angulo_secundario,
-                dx,
-                dy,
-                float(tem_capacete),
-                float(tem_colete)
-            ])
-            risco_modelo = risco_predictivo[0] if risco_predictivo else 0
-            risco_percentual = max(risco_imediato, risco_modelo)
-            
-            if risco_percentual <= 30:
-                risco_score, cor_final = "BAIXO", COLOR_GREEN
-                violacao = False
-            elif risco_percentual <= 60:
-                risco_score, cor_final = "MÉDIO", COLOR_YELLOW
-                violacao = False
-            else:
-                risco_score, cor_final = "ALTO", COLOR_RED
-                violacao = True
+                if len(classes_permitidas) > 0:
+                    results_epi = self.model_epi(detection_frame, verbose=False, conf=0.5, classes=classes_permitidas)
+                else:
+                    results_epi = None
 
-            # 5. Comunicação com ESP32 via JSON (Trigger do alarme/luz)
-            if violacao:
-                self.send_alert_to_esp32(risco_percentual, epi_ausentes, status_postura)
+                postura_score = 0
+                angulo_tronco = 0.0
+                angulo_secundario = 0.0
+                dx = 0.0
+                dy = 0.0
 
-            # 6. Preparar imagem e emitir Sinais para a Interface
-            frame = self._draw_dead_zones(frame)
-            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb_image.shape
-            bytes_per_line = ch * w
-            qt_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
+                epi_score = 0
+                epi_ausentes = []
 
-            self.frame_updated.emit(qt_img)
+                if self.active_tags["postura"] and results_pose and results_pose[0].keypoints is not None and len(results_pose[0].keypoints.xy) > 0:
+                    keypoints = results_pose[0].keypoints.xy[0].cpu().numpy()
+                    if len(keypoints) > 12:
+                        ombro_y = (keypoints[5][1] + keypoints[6][1]) / 2
+                        ombro_x = (keypoints[5][0] + keypoints[6][0]) / 2
+                        quadril_y = (keypoints[11][1] + keypoints[12][1]) / 2
+                        quadril_x = (keypoints[11][0] + keypoints[12][0]) / 2
+
+                        if quadril_y > 0 and ombro_y > 0:
+                            dx = ombro_x - quadril_x
+                            dy = quadril_y - ombro_y
+                            angulo_tronco = math.degrees(math.atan2(abs(dx), dy))
+
+                        nariz_x, nariz_y = keypoints[0]
+                        if ombro_y > 0 and nariz_y > 0:
+                            angulo_secundario = math.degrees(math.atan2(abs(nariz_x - ombro_x), abs(ombro_y - nariz_y)))
+
+                            if angulo_tronco < 10:
+                                postura_score = 10
+                                status_postura = f"Normal ({int(angulo_tronco)}°)"
+                            elif 10 <= angulo_tronco <= 20:
+                                postura_score = 30
+                                status_postura = f"Atenção ({int(angulo_tronco)}°)"
+                            elif 20 < angulo_tronco <= 60:
+                                postura_score = 60
+                                status_postura = f"Risco ({int(angulo_tronco)}°)"
+                            else:
+                                postura_score = 90
+                                status_postura = f"Perigo ({int(angulo_tronco)}°)"
+
+                    frame = results_pose[0].plot(img=frame)
+
+                frame = self._draw_detection_overlays(frame, results_pose, results_epi)
+
+                tem_capacete = not self.active_tags["capacete"]
+                tem_colete = not self.active_tags["colete"]
+                if results_epi and results_epi[0].boxes is not None:
+                    for box in results_epi[0].boxes:
+                        cls_id = int(box.cls[0].item())
+                        if cls_id == 0 and self.active_tags["capacete"]: tem_capacete = True
+                        elif cls_id == 1 and self.active_tags["colete"]: tem_colete = True
+                    frame = results_epi[0].plot(img=frame)
+
+                if not tem_capacete:
+                    epi_score += 40
+                    epi_ausentes.append("Capacete")
+                if not tem_colete:
+                    epi_score += 30
+                    epi_ausentes.append("Colete")
+
+                status_epi = "EPI: OK" if epi_score == 0 else f"Falta: {', '.join(epi_ausentes)}"
+
+                risco_imediato = min(postura_score + epi_score, 100)
+                risco_predictivo = self.risk_predictor.predict([
+                    angulo_tronco,
+                    angulo_secundario,
+                    dx,
+                    dy,
+                    float(tem_capacete),
+                    float(tem_colete)
+                ])
+                risco_modelo = risco_predictivo[0] if risco_predictivo else 0
+                risco_percentual = max(risco_imediato, risco_modelo)
+
+                if risco_percentual <= 30:
+                    risco_score, cor_final = "BAIXO", COLOR_GREEN
+                    violacao = False
+                elif risco_percentual <= 60:
+                    risco_score, cor_final = "MÉDIO", COLOR_YELLOW
+                    violacao = False
+                else:
+                    risco_score, cor_final = "ALTO", COLOR_RED
+                    violacao = True
+
+                if violacao:
+                    self.send_alert_to_esp32(risco_percentual, epi_ausentes, status_postura)
+
+            except Exception as exc:
+                print(f"⚠ Falha ao processar o frame da câmera: {exc}")
+                risco_score, cor_final, risco_percentual = "BAIXO", COLOR_GREEN, 0
+                status_postura = "Postura: OK"
+                status_epi = "EPI: OK"
+
+            try:
+                if not isinstance(frame, np.ndarray) or frame is None or frame.size == 0:
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                frame = self._draw_dead_zones(frame)
+                if frame is None or frame.size == 0:
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                qt_img = self._frame_to_qimage(frame)
+                if qt_img.isNull():
+                    raise ValueError("QImage inválida")
+                self.frame_updated.emit(qt_img)
+            except Exception as exc:
+                print(f"⚠ Falha ao serializar o frame para a UI: {exc}")
+                fallback = np.zeros((480, 640, 3), dtype=np.uint8)
+                self.frame_updated.emit(self._frame_to_qimage(fallback))
+
             self.metrics_updated.emit(status_postura, status_epi, risco_score, cor_final, risco_percentual)
 
         cap.release()
@@ -299,4 +405,6 @@ class SafetyPipelineThread(QThread):
 
     def stop(self):
         self.stop_flag = True
-        self.wait()
+        if self.isRunning():
+            self.quit()
+            self.wait(1500)
