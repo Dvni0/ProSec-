@@ -219,6 +219,9 @@ class SafetyPipelineThread(QThread):
             try:
                 cap = cv2.VideoCapture(candidate, cv2.CAP_DSHOW if hasattr(cv2, 'CAP_DSHOW') else cv2.CAP_ANY)
                 if cap is not None and cap.isOpened():
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                     print(f"✓ Câmera aberta no índice {candidate}")
                     return cap, candidate
             except Exception:
@@ -228,6 +231,9 @@ class SafetyPipelineThread(QThread):
             try:
                 cap = cv2.VideoCapture(candidate)
                 if cap is not None and cap.isOpened():
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                     print(f"✓ Câmera aberta no índice {candidate} (fallback)")
                     return cap, candidate
             except Exception:
@@ -258,7 +264,9 @@ class SafetyPipelineThread(QThread):
             try:
                 detection_frame = self._apply_dead_zones(frame)
 
-                results_pose = self.model_pose(detection_frame, verbose=False, conf=0.5) if self.active_tags["postura"] else None
+                results_pose = self.model_pose(
+                    detection_frame, verbose=False, conf=0.5, imgsz=416
+                ) if self.active_tags["postura"] else None
 
                 classes_permitidas = []
                 if self.active_tags["capacete"]: classes_permitidas.append(0)
@@ -268,7 +276,10 @@ class SafetyPipelineThread(QThread):
                 if self.active_tags["botas"]: classes_permitidas.append(4)
 
                 if len(classes_permitidas) > 0:
-                    results_epi = self.model_epi(detection_frame, verbose=False, conf=0.5, classes=classes_permitidas)
+                    results_epi = self.model_epi(
+                        detection_frame, verbose=False, conf=0.5,
+                        classes=classes_permitidas, imgsz=416
+                    )
                 else:
                     results_epi = None
 
@@ -280,6 +291,12 @@ class SafetyPipelineThread(QThread):
 
                 epi_score = 0
                 epi_ausentes = []
+                person_present = bool(
+                    results_pose
+                    and len(results_pose) > 0
+                    and getattr(results_pose[0], "boxes", None) is not None
+                    and len(results_pose[0].boxes) > 0
+                )
 
                 if self.active_tags["postura"] and results_pose and results_pose[0].keypoints is not None and len(results_pose[0].keypoints.xy) > 0:
                     keypoints = results_pose[0].keypoints.xy[0].cpu().numpy()
@@ -317,21 +334,21 @@ class SafetyPipelineThread(QThread):
 
                 tem_capacete = not self.active_tags["capacete"]
                 tem_colete = not self.active_tags["colete"]
-                if results_epi and results_epi[0].boxes is not None:
+                if person_present and results_epi and results_epi[0].boxes is not None:
                     for box in results_epi[0].boxes:
                         cls_id = int(box.cls[0].item())
                         if cls_id == 0 and self.active_tags["capacete"]: tem_capacete = True
                         elif cls_id == 1 and self.active_tags["colete"]: tem_colete = True
                     frame = results_epi[0].plot(img=frame)
 
-                if not tem_capacete:
+                if person_present and not tem_capacete:
                     epi_score += 40
                     epi_ausentes.append("Capacete")
-                if not tem_colete:
+                if person_present and not tem_colete:
                     epi_score += 30
                     epi_ausentes.append("Colete")
 
-                status_epi = "EPI: OK" if epi_score == 0 else f"Falta: {', '.join(epi_ausentes)}"
+                status_epi = "EPI: OK" if not person_present or epi_score == 0 else f"Falta: {', '.join(epi_ausentes)}"
 
                 risco_imediato = min(postura_score + epi_score, 100)
                 risco_predictivo = self.risk_predictor.predict([
@@ -341,7 +358,7 @@ class SafetyPipelineThread(QThread):
                     dy,
                     float(tem_capacete),
                     float(tem_colete)
-                ])
+                ]) if person_present else None
                 risco_modelo = risco_predictivo[0] if risco_predictivo else 0
                 risco_percentual = max(risco_imediato, risco_modelo)
 
@@ -404,7 +421,8 @@ class SafetyPipelineThread(QThread):
                 print(f"Erro ao enviar dados para ESP32: {e}")
 
     def stop(self):
+        """Solicita a parada e só retorna quando a thread liberou a câmera."""
         self.stop_flag = True
         if self.isRunning():
-            self.quit()
-            self.wait(1500)
+            self.requestInterruption()
+            self.wait()

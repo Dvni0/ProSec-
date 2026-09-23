@@ -101,19 +101,15 @@ class ZoneFeedWidget(QWidget):
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: none; background: transparent;")
         self.image_label.setScaledContents(False)
+        self.image_label.hide()
         self.setMinimumSize(1, 1)
         self.setMouseTracking(True)
 
     def _apply_pixmap_to_label(self):
         if self.pixmap.isNull():
-            self.image_label.clear()
+            self.update()
             return
-        target_size = self.size()
-        if target_size.width() <= 0 or target_size.height() <= 0:
-            target_size = self.pixmap.size()
-        scaled = self.pixmap.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.image_label.setPixmap(scaled)
-        self.image_label.setGeometry(0, 0, self.width(), self.height())
+        self.update()
 
     def set_frame(self, qt_img):
         if qt_img is None:
@@ -125,7 +121,6 @@ class ZoneFeedWidget(QWidget):
 
     def clear_frame(self):
         self.pixmap = QPixmap()
-        self.image_label.clear()
         self.update()
 
     def resizeEvent(self, event):
@@ -196,6 +191,10 @@ class ZoneFeedWidget(QWidget):
         painter.fillRect(self.rect(), QColor("#121319"))
 
         painter.setRenderHint(QPainter.Antialiasing)
+        if not self.pixmap.isNull():
+            image_rect = self._image_rect()
+            painter.drawPixmap(image_rect.toRect(), self.pixmap)
+
         painter.setPen(QPen(QColor("#B8BEC9"), 2))
         painter.setBrush(QBrush(QColor(80, 80, 80, 90)))
         for zone in self.dead_zones:

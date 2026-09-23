@@ -98,6 +98,7 @@ class ApplicationOrchestrator(QMainWindow):
             
             if cam_id in self.pipelines:
                 self.pipelines[cam_id].stop()
+                del self.pipelines[cam_id]
                 
             # A fonte pode ser um índice local ou uma URL RTSP.
             thread = SafetyPipelineThread(porta_serial='COM3', camera_index=settings["camera_source"])
