@@ -100,17 +100,17 @@ class SelectionView(QWidget):
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         
-        user_lbl = QLabel(NOME_DO_OPERADOR)
-        user_lbl.setStyleSheet("color: white; font-size: 13px; font-weight: bold; background: transparent;")
+        self.user_lbl = QLabel(NOME_DO_OPERADOR)
+        self.user_lbl.setStyleSheet("color: white; font-size: 13px; font-weight: bold; background: transparent;")
         
         sidebar_initials = "".join([part[0] for part in NOME_DO_OPERADOR.split() if part])[:2]
-        avatar_lbl = QLabel(sidebar_initials)
-        avatar_lbl.setFixedSize(32, 32)
-        avatar_lbl.setAlignment(Qt.AlignCenter)
-        avatar_lbl.setStyleSheet(f"background-color: {COLOR_BORDER}; color: #121319; font-weight: bold; border-radius: 16px; font-size: 11px; border: none;")
+        self.avatar_lbl = QLabel(sidebar_initials)
+        self.avatar_lbl.setFixedSize(32, 32)
+        self.avatar_lbl.setAlignment(Qt.AlignCenter)
+        self.avatar_lbl.setStyleSheet(f"background-color: {COLOR_BORDER}; color: #121319; font-weight: bold; border-radius: 16px; font-size: 11px; border: none;")
         
-        top_bar.addWidget(user_lbl)
-        top_bar.addWidget(avatar_lbl)
+        top_bar.addWidget(self.user_lbl)
+        top_bar.addWidget(self.avatar_lbl)
         main_layout.addLayout(top_bar)
         
         main_layout.addSpacing(60)
@@ -166,6 +166,12 @@ class SelectionView(QWidget):
         back_layout.addWidget(back_btn)
         back_layout.addStretch()
         main_layout.addLayout(back_layout)
+
+    def set_user(self, user):
+        full_name = user.get("full_name", NOME_DO_OPERADOR)
+        initials = "".join(part[0] for part in full_name.split() if part)[:2].upper()
+        self.user_lbl.setText(full_name)
+        self.avatar_lbl.setText(initials)
 
     def paintEvent(self, event):
         painter = QPainter(self)

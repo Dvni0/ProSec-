@@ -62,12 +62,97 @@ Para garantir latência mínima e processamento off-line na planta industrial, o
 
 ---
 
+## 🧩 Arquitetura Implementada no Código Atual
+
+A estrutura atual do projeto já refletiu a organização de um sistema desktop multi-tela com separação entre interface, lógica de negócio e IA. A arquitetura principal é a seguinte:
+
+* **`src/main.py`**: Orquestrador principal da aplicação. Controla a navegação entre telas por meio de `QStackedWidget`, mantém asthreads de câmeras e conecta os sinais da IA com a interface gráfica.
+* **`src/views/`**: Camada de interface do usuário, composta por:
+  * `login_view.py` — tela de autenticação.
+  * `selection_view.py` — menu de acesso às funcionalidades.
+  * `dashboard_view.py` — dashboard, alertas, perfil do operador e relatórios.
+* **`src/controllers/pipelineThreadSource.py`**: Núcleo de processamento em background. Nesta camada são carregados os modelos YOLO (detecção de EPIs e pose humana), é calculado o risco operacional e a integração com a comunicação serial do ESP32/IoT ocorre nesta thread.
+* **`src/configs/config.py`**: Centraliza paleta visual, dados do operador, nome da câmera, informações de risco e parâmetros de configuração.
+* **`src/models/`**: armazena os pesos de modelos e dados persistentes, além do cadastro de usuários e histórico de risco.
+* **Persistência / analytics**: a interface usa `SQLite` para registrar ocorrências e alimentar o histórico visual do módulo de relatórios; o dashboard também usa `pyqtgraph` para renderizar gráficos em tempo real.
+
+### Fluxo de execução da aplicação
+1. O usuário acessa a tela de **login**.
+2. Após autenticação, entra no **menu principal** (seleção de acesso).
+3. A partir desse menu, o sistema pode abrir:
+   * dashboard de monitoramento em tempo real,
+   * área de alertas,
+   * perfil de operador,
+   * relatórios de evolução de risco.
+4. Cada câmera pode ser configurada individualmente, com origem de vídeo, tags de detecção e zonas mortas personalizadas.
+5. O pipeline de IA emite sinais de frame, métricas e alertas que atualizam os widgets da interface sem travar a experiência do usuário.
+
+---
+
 ## 🚀 Funcionalidades Principais
-* Renderização em tempo real das câmeras industriais na interface desktop PyQt.
-* Emissão de alertas visuais (UI color-coded) e sonoros imediatos ao detectar a ausência de um EPI.
-* Registro automático de logs (Timestamp, Setor, Tipo de Infração, Imagem do Incidente).
-* Análise de queda ou postura perigosa via extração de esqueleto humano na imagem.
+* Renderização em tempo real das câmeras industriais na interface desktop PySide6.
+* Monitoramento simultâneo de múltiplas câmeras com painel de dashboard, métricas e indicadores visuais.
+* Detecção de EPIs e postura humana usando modelos YOLO e YOLO Pose.
+* Emissão de alertas visuais (UI color-coded) e sonoros imediatos ao detectar a ausência de um EPI ou comportamento inseguro.
+* Registro automático de logs e ocorrência de risco para histórico analítico.
+* Análise de queda, postura perigosa, zonas mortas e risco operacional em tempo real.
 * Dashboard analítico exibindo o "Termômetro de Risco" preditivo atualizado dinamicamente por setor.
+* Perfil do operador e painel de compliance/registros de segurança.
+* Acompanhamento por gráficos de tendência de risco e contagem diária de incidentes.
+
+---
+
+## 🖥️ Telas e Fluxo da Interface Atual
+
+### 1) Tela de Login
+A primeira tela da aplicação é o login de acesso ao sistema. Ela usa um visual em modo escuro com painel central, campos de usuário/senha e status de autenticação. Ao validar corretamente, a aplicação dispara o sinal `login_successful` e navega para o menu principal.
+
+### 2) Tela de Seleção / Menu Principal
+A segunda tela oferece acesso aos principais módulos do sistema em cards interativos:
+* **Acesso às câmeras**
+* **Configurações**
+* **Ranking**
+
+Essa tela funciona como ponto de entrada para o dashboard e para as áreas operacionais e analíticas.
+
+### 3) Dashboard de Monitoramento
+A tela principal do sistema reúne as quatro câmeras em grid, cada uma com:
+* status live
+* badge de risco
+* botão para adicionar e configurar a câmera
+* botão para marcar zonas mortas
+* botão para fechar a transmissão
+
+Além disso, o dashboard inclui:
+* medidor circular de risco atual
+* métricas de postura, EPI e alertas em aberto
+* indicador de compliance global
+
+### 4) Tela de Alertas
+A aba de alertas exibe o estado crítico do sistema:
+* mensagem de alerta ativo ou normal
+* severidade e horário do evento
+* detalhes da condição detectada
+* histórico recente de ocorrências
+
+Essa página é atualizada em tempo real pelos sinais emitidos pelo pipeline de IA.
+
+### 5) Tela de Operações (Ops)
+A tela de operações concentra o perfil do operador e informações operacionais, como:
+* nome do colaborador
+* função / turno
+* experiência
+* compliance
+* setor e informações complementares
+
+### 6) Tela de Relatórios
+A aba de relatórios exibe trend de risco em tempo real e contagem diária de incidentes. Ela utiliza `pyqtgraph` para desenhar gráficos e `SQLite` para manter histórico de ocorrências, permitindo comparar tendência e nível de risco ao longo do tempo.
+
+### 7) Navegação entre telas
+O fluxo principal da aplicação é controlado por `QStackedWidget`:
+`Login -> Seleção -> Dashboard/Alerts/Ops/Reports`.
+
+O sistema também permite voltar ao menu principal e encerrar todas as threads de câmera e processamentos quando a aplicação é fechada.
 
 ---
 

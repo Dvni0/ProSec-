@@ -1,4 +1,8 @@
 # dashboard_view.py
+import sqlite3
+from datetime import datetime, timedelta
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QPoint, QRectF, QSize, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap
 from PySide6.QtWidgets import (
@@ -97,16 +101,35 @@ class ZoneFeedWidget(QWidget):
         self.dead_zones = []
         self.current_zone = []
         self.drawing_enabled = False
+        self.image_label = QLabel(self)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet("border: none; background: transparent;")
+        self.image_label.setScaledContents(False)
+        self.image_label.hide()
         self.setMinimumSize(1, 1)
         self.setMouseTracking(True)
 
-    def set_frame(self, qt_img):
-        self.pixmap = QPixmap.fromImage(qt_img)
+    def _apply_pixmap_to_label(self):
+        if self.pixmap.isNull():
+            self.update()
+            return
         self.update()
-    
+
+    def set_frame(self, qt_img):
+        if qt_img is None:
+            self.clear_frame()
+            return
+        self.pixmap = QPixmap.fromImage(qt_img)
+        self._apply_pixmap_to_label()
+        self.update()
+
     def clear_frame(self):
         self.pixmap = QPixmap()
         self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_pixmap_to_label()
 
     def _image_rect(self):
         if self.pixmap.isNull():
@@ -170,11 +193,12 @@ class ZoneFeedWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#121319"))
-        image_rect = self._image_rect()
-        if not self.pixmap.isNull():
-            painter.drawPixmap(image_rect, self.pixmap)
 
         painter.setRenderHint(QPainter.Antialiasing)
+        if not self.pixmap.isNull():
+            image_rect = self._image_rect()
+            painter.drawPixmap(image_rect.toRect(), self.pixmap)
+
         painter.setPen(QPen(QColor("#B8BEC9"), 2))
         painter.setBrush(QBrush(QColor(80, 80, 80, 90)))
         for zone in self.dead_zones:
@@ -205,7 +229,7 @@ class CameraFeedWidget(QFrame):
         self.location = location
         self.init_ui()
     def init_ui(self):
-        self.setMinimumSize(320, 240)
+        self.setMinimumSize(380, 285)
         self.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border-radius: 12px; border: 1px solid {COLOR_BORDER};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -321,6 +345,9 @@ class CircularRiskGauge(QWidget):
 class MetricCard(QFrame):
     def __init__(self, title, value, subtitle="", is_red=False, is_green=False, is_yellow=False, parent=None):
         super().__init__(parent)
+        self.setMinimumHeight(100)
+        self.setMaximumHeight(100)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border-radius: 12px; border: 1px solid {COLOR_BORDER};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 15, 20, 15)
@@ -332,6 +359,10 @@ class MetricCard(QFrame):
         elif is_green: val_color = COLOR_GREEN
         elif is_yellow: val_color = COLOR_YELLOW
         self.val_lbl = QLabel(str(value))
+        self.val_lbl.setWordWrap(False)
+        self.val_lbl.setMinimumWidth(0)
+        self.val_lbl.setFixedHeight(34)
+        self.val_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.val_lbl.setStyleSheet(f"color: {val_color}; font-size: 26px; font-weight: bold; border: none; background: transparent;")
         layout.addWidget(title_lbl)
         layout.addWidget(self.val_lbl)
@@ -385,6 +416,11 @@ class CustomChartWidget(QWidget):
             for pt in points:
                 painter.drawEllipse(pt, 5, 5)
 
+    def update_data(self, x_labels, data):
+        self.x_labels = x_labels
+        self.series[0]["data"] = data
+        self.update()
+
 # ----------------- PAGINAS INTERNAS -----------------
 class DashboardPage(QWidget):
     def __init__(self, parent=None):
@@ -426,7 +462,7 @@ class DashboardPage(QWidget):
         self.card_posture = MetricCard("Posture Status", "Aguardando", is_yellow=True)
         self.card_epi = MetricCard("EPI Status", "Aguardando", is_green=True)
         self.card_alerts = MetricCard("Open Alerts", CONFIG["open_alerts"], is_red=True)
-        self.card_compliance = MetricCard("Global Compliance", CONFIG["compliance"])
+        self.card_compliance = MetricCard("Global Compliance", "Sem histórico")
         metrics_layout.addWidget(self.card_posture)
         metrics_layout.addWidget(self.card_epi)
         metrics_layout.addWidget(self.card_alerts)
@@ -449,65 +485,105 @@ class DashboardPage(QWidget):
         content_layout.addWidget(right_panel, 1)
         main_layout.addLayout(content_layout)
 
+    def set_global_compliance(self, value):
+        self.card_compliance.set_value(value or "Sem histórico")
+
 class AlertsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.recent_alerts = []
         self.init_ui()
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(25)
-        alert_info = CONFIG["critical_alert"]
         critical_box = QFrame()
         critical_box.setStyleSheet(f"background-color: #1F1517; border: 2px solid {COLOR_RED}; border-radius: 12px;")
         critical_layout = QVBoxLayout(critical_box)
         critical_layout.setContentsMargins(25, 25, 25, 25)
         title_row = QHBoxLayout()
         title_row.addWidget(QLabel("⚠️", styleSheet="font-size: 26px; background: transparent; border: none;"))
-        title_row.addWidget(QLabel("CRITICAL ALERT", styleSheet=f"color: {COLOR_RED}; font-size: 24px; font-weight: bold; background: transparent; border: none;"))
+        self.alert_title = QLabel("NENHUM ALERTA ATIVO", styleSheet=f"color: {COLOR_GREEN}; font-size: 24px; font-weight: bold; background: transparent; border: none;")
+        title_row.addWidget(self.alert_title)
         title_row.addStretch()
         critical_layout.addLayout(title_row)
-        critical_layout.addWidget(QLabel("Safety Protocol Violation Detected", styleSheet="color: white; font-size: 14px; font-weight: bold; background: transparent; border: none;"))
+        self.alert_summary = QLabel("O pipeline ainda não registrou uma condição de risco alto.", styleSheet="color: white; font-size: 14px; font-weight: bold; background: transparent; border: none;")
+        critical_layout.addWidget(self.alert_summary)
         meta_row = QHBoxLayout()
-        for index, (k, v, c) in enumerate([("Location", alert_info["location"], "white"), ("Time", alert_info["time"], "white"), ("Severity", alert_info["severity"], COLOR_RED)]):
+        self.alert_values = {}
+        for key, value, color in [("Location", "Câmera monitorada", "white"), ("Time", "-", "white"), ("Severity", "NORMAL", COLOR_GREEN)]:
             card = QFrame()
             card.setStyleSheet(f"background-color: rgba(255, 255, 255, 0.03); border: 1px solid {COLOR_BORDER}; border-radius: 8px;")
             card_lay = QVBoxLayout(card)
-            card_lay.addWidget(QLabel(k, styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 11px; background: transparent; border: none;"))
-            card_lay.addWidget(QLabel(v, styleSheet=f"color: {c}; font-size: 14px; font-weight: bold; background: transparent; border: none;"))
+            card_lay.addWidget(QLabel(key, styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 11px; background: transparent; border: none;"))
+            value_label = QLabel(value, styleSheet=f"color: {color}; font-size: 14px; font-weight: bold; background: transparent; border: none;")
+            card_lay.addWidget(value_label)
+            self.alert_values[key] = value_label
             meta_row.addWidget(card, 1)
         critical_layout.addLayout(meta_row)
         details = QFrame()
         details.setStyleSheet("background-color: rgba(217, 56, 58, 0.05); border: 1px solid rgba(217, 56, 58, 0.2); border-radius: 8px;")
-        details_layout = QVBoxLayout(details)
-        for detail_text in alert_info["details"]:
-            details_layout.addWidget(QLabel(f"• {detail_text}", styleSheet="color: #FFC0C1; font-size: 13px; background: transparent; border: none;"))
+        self.details_layout = QVBoxLayout(details)
+        self.details_layout.addWidget(QLabel("• Aguardando dados do pipeline", styleSheet="color: #B8BEC9; font-size: 13px; background: transparent; border: none;"))
         critical_layout.addWidget(details)
-        self.trigger_btn = QPushButton("🚨 TRIGGER ALARM")
+        self.trigger_btn = QPushButton("AGUARDANDO ALERTA")
+        self.trigger_btn.setEnabled(False)
         self.trigger_btn.setStyleSheet(f"QPushButton {{ background-color: {COLOR_RED}; color: white; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; padding: 14px; }}")
         critical_layout.addWidget(self.trigger_btn)
         layout.addWidget(critical_box)
         layout.addWidget(QLabel("Recent Alerts", styleSheet="color: white; font-size: 18px; font-weight: bold;"))
-        list_container = QVBoxLayout()
-        for item in CONFIG["recent_alerts"]:
-            col = COLOR_RED if item["severity"] == "HIGH" else COLOR_YELLOW if item["severity"] == "MEDIUM" else COLOR_GREEN
-            row = QFrame()
-            row.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 8px;")
-            row_layout = QHBoxLayout(row)
-            row_layout.addWidget(QLabel(item["severity"], styleSheet=f"color: {col}; font-weight: bold; font-size: 11px; background-color: rgba(255,255,255,0.04); border-radius: 4px; padding: 4px 10px; border: none;"))
-            info = QVBoxLayout()
-            info.addWidget(QLabel(item["name"], styleSheet="color: white; font-weight: bold; font-size: 13px; background: transparent; border: none;"))
-            info.addWidget(QLabel(item["time_ago"], styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 11px; background: transparent; border: none;"))
-            row_layout.addLayout(info, 1)
-            row_layout.addWidget(QLabel(item["status"], styleSheet=f"color: {col}; font-weight: bold; font-size: 11px; background-color: rgba(255,255,255,0.04); border-radius: 4px; padding: 6px 12px; border: none;"))
-            list_container.addWidget(row)
-        layout.addLayout(list_container)
+        self.recent_layout = QVBoxLayout()
+        self.recent_layout.addWidget(QLabel("Nenhuma ocorrência registrada nesta sessão.", styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 13px;"))
+        layout.addLayout(self.recent_layout)
         layout.addStretch()
+
+    def update_alert(self, active, risk_percentage, risk_level, details, recorded_at):
+        if not active:
+            self.alert_title.setText("NENHUM ALERTA ATIVO")
+            self.alert_title.setStyleSheet(f"color: {COLOR_GREEN}; font-size: 24px; font-weight: bold; background: transparent; border: none;")
+            self.alert_summary.setText("O pipeline voltou a um nível de risco controlado.")
+            self.alert_values["Severity"].setText("NORMAL")
+            self.alert_values["Severity"].setStyleSheet(f"color: {COLOR_GREEN}; font-size: 14px; font-weight: bold; background: transparent; border: none;")
+            self.trigger_btn.setText("AGUARDANDO ALERTA")
+            self._set_details("Monitoramento normalizado")
+            return
+
+        self.alert_title.setText("ALERTA DE RISCO")
+        self.alert_title.setStyleSheet(f"color: {COLOR_RED}; font-size: 24px; font-weight: bold; background: transparent; border: none;")
+        self.alert_summary.setText(f"Risco {risk_percentage}% detectado pelo pipeline.")
+        self.alert_values["Time"].setText(recorded_at)
+        self.alert_values["Severity"].setText(risk_level)
+        self.alert_values["Severity"].setStyleSheet(f"color: {COLOR_RED}; font-size: 14px; font-weight: bold; background: transparent; border: none;")
+        self.trigger_btn.setText("ALERTA ATIVO")
+        self._set_details(details)
+        self._add_recent_alert(risk_level, risk_percentage, recorded_at)
+
+    def _set_details(self, text):
+        while self.details_layout.count():
+            item = self.details_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.details_layout.addWidget(QLabel(f"• {text}", styleSheet="color: #FFC0C1; font-size: 13px; background: transparent; border: none;"))
+
+    def _add_recent_alert(self, risk_level, risk_percentage, recorded_at):
+        self.recent_alerts.insert(0, (risk_level, risk_percentage, recorded_at))
+        self.recent_alerts = self.recent_alerts[:10]
+        while self.recent_layout.count():
+            item = self.recent_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for level, percentage, timestamp in self.recent_alerts:
+            self.recent_layout.addWidget(QLabel(
+                f"{level} | {percentage}% | {timestamp}",
+                styleSheet="color: white; font-size: 13px; background: transparent;"
+            ))
 
 class OpsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -519,22 +595,140 @@ class OpsPage(QWidget):
         profile_card.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 12px;")
         prof_layout = QVBoxLayout(profile_card)
         initials = "".join([part[0] for part in CONFIG["op_name"].split() if part])[:2]
-        avatar = QLabel(initials)
-        avatar.setFixedSize(90, 90)
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setStyleSheet(f"background-color: {COLOR_YELLOW}; color: #121319; font-size: 28px; font-weight: bold; border-radius: 45px;")
-        prof_layout.addWidget(avatar, 0, Qt.AlignCenter)
-        prof_layout.addWidget(QLabel(CONFIG["op_name"], alignment=Qt.AlignCenter, styleSheet="color: white; font-size: 18px; font-weight: bold; background: transparent; border: none;"))
-        prof_layout.addWidget(QLabel(CONFIG["op_role"], alignment=Qt.AlignCenter, styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background: transparent; border: none;"))
+        self.avatar = QLabel(initials)
+        self.avatar.setFixedSize(90, 90)
+        self.avatar.setAlignment(Qt.AlignCenter)
+        self.avatar.setStyleSheet(f"background-color: {COLOR_YELLOW}; color: #121319; font-size: 28px; font-weight: bold; border-radius: 45px;")
+        prof_layout.addWidget(self.avatar, 0, Qt.AlignCenter)
+        self.name_label = QLabel(alignment=Qt.AlignCenter, styleSheet="color: white; font-size: 18px; font-weight: bold; background: transparent; border: none;")
+        self.role_label = QLabel(alignment=Qt.AlignCenter, styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background: transparent; border: none;")
+        prof_layout.addWidget(self.name_label)
+        prof_layout.addWidget(self.role_label)
         prof_layout.addStretch()
         panel_layout.addWidget(profile_card, 1)
+        details_card = QFrame()
+        details_card.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 12px;")
+        details_layout = QVBoxLayout(details_card)
+        details_layout.addWidget(QLabel("Operational Information", styleSheet="color: white; font-size: 16px; font-weight: bold; background: transparent; border: none;"))
+        self.details_label = QLabel()
+        self.details_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 13px; background: transparent; border: none;")
+        self.details_label.setWordWrap(True)
+        details_layout.addWidget(self.details_label)
+        details_layout.addStretch()
+        panel_layout.addWidget(details_card, 2)
         layout.addLayout(panel_layout)
         layout.addStretch()
+        self.set_operator({
+            "full_name": CONFIG["op_name"],
+            "role": CONFIG["op_role"],
+            "department": "Linha de Montagem A",
+            "shift": CONFIG["op_shift"],
+            "experience_years": CONFIG["op_experience_val"],
+            "compliance": CONFIG["op_compliance"],
+            "email": "-",
+        })
+
+    def set_operator(self, user):
+        full_name = user.get("full_name", CONFIG["op_name"])
+        self.name_label.setText(full_name)
+        self.role_label.setText(user.get("role", CONFIG["op_role"]))
+        initials = "".join(part[0] for part in full_name.split() if part)[:2].upper()
+        self.avatar.setText(initials)
+        self.details_label.setText(
+            f"Setor: {user.get('department', '-') }\n"
+            f"Turno: {user.get('shift', '-') }\n"
+            f"Experiência: {user.get('experience_years', 0)} anos\n"
+            f"Compliance: {user.get('compliance', '-')}\n"
+            f"E-mail: {user.get('email', '-')}"
+        )
 
 class ReportsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.occurrences_db = Path(__file__).resolve().parents[2] / "ocorrencias_risco.db"
+        self._initialize_occurrences_db()
         self.init_ui()
+
+    def _initialize_occurrences_db(self):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS risk_occurrences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recorded_at TEXT NOT NULL,
+                    risk_percentage INTEGER NOT NULL,
+                    risk_level TEXT NOT NULL
+                )
+                """
+            )
+
+    def _load_saved_risks(self):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            rows = connection.execute(
+                """
+                SELECT risk_percentage
+                FROM risk_occurrences
+                ORDER BY id DESC
+                LIMIT 60
+                """
+            ).fetchall()
+        return [int(row[0]) for row in reversed(rows)]
+
+    def get_historical_compliance(self):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            average_risk = connection.execute(
+                "SELECT AVG(risk_percentage) FROM risk_occurrences"
+            ).fetchone()[0]
+        if average_risk is None:
+            return None
+        compliance = max(0, min(100, 100 - float(average_risk)))
+        return f"{compliance:.1f}%"
+
+    def _risk_level(self, risk_val):
+        if risk_val <= 30:
+            return "BAIXO"
+        if risk_val <= 60:
+            return "MÉDIO"
+        return "ALTO"
+
+    def _save_occurrence(self, risk_val, risk_level):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            connection.execute(
+                """
+                INSERT INTO risk_occurrences (recorded_at, risk_percentage, risk_level)
+                VALUES (?, ?, ?)
+                """,
+                (datetime.now().isoformat(timespec="seconds"), risk_val, risk_level),
+            )
+
+    def _load_daily_occurrences(self):
+        today = datetime.now().date()
+        first_day = today - timedelta(days=6)
+        day_keys = [
+            (first_day + timedelta(days=offset)).isoformat()
+            for offset in range(7)
+        ]
+        with sqlite3.connect(self.occurrences_db) as connection:
+            rows = connection.execute(
+                """
+                SELECT substr(recorded_at, 1, 10), COUNT(*)
+                FROM risk_occurrences
+                WHERE substr(recorded_at, 1, 10) >= ?
+                GROUP BY substr(recorded_at, 1, 10)
+                """,
+                (first_day.isoformat(),),
+            ).fetchall()
+        counts = {day: count for day, count in rows}
+        labels = [
+            (first_day + timedelta(days=offset)).strftime("%d/%m")
+            for offset in range(7)
+        ]
+        return labels, [counts.get(day, 0) for day in day_keys]
+
+    def _refresh_daily_occurrences(self):
+        labels, values = self._load_daily_occurrences()
+        self.daily_chart.update_data(labels, values)
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -559,7 +753,9 @@ class ReportsPage(QWidget):
         layout.addWidget(chart1_card)
 
         self.time_data = list(range(60))
-        self.risk_data = [0] * 60
+        saved_risks = self._load_saved_risks()
+        self.risk_data = [0] * (60 - len(saved_risks)) + saved_risks
+        self._last_risk_level = None
         self.pen = pg.mkPen(color=COLOR_RED, width=3)
         self.data_line = self.plot_widget.plot(self.time_data, self.risk_data, pen=self.pen)
         
@@ -567,16 +763,26 @@ class ReportsPage(QWidget):
         chart2_card.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 12px;")
         chart2_lay = QVBoxLayout(chart2_card)
         chart2_lay.addWidget(QLabel("📊 Daily Incident Count", styleSheet="color: white; font-size: 15px; font-weight: bold; background: transparent; border: none;"))
-        x_lbls = ["Jun 10", "Jun 11", "Jun 12", "Jun 13", "Jun 14", "Jun 15", "Jun 16"]
-        series2 = [{"name": "Incidents", "color": COLOR_YELLOW, "data": CONFIG["daily_incidents_data"]}]
-        chart2 = CustomChartWidget(x_lbls, series2, (0, 8))
-        chart2_lay.addWidget(chart2)
+        x_lbls, daily_values = self._load_daily_occurrences()
+        series2 = [{"name": "Incidents", "color": COLOR_YELLOW, "data": daily_values}]
+        self.daily_chart = CustomChartWidget(x_lbls, series2, (0, max(8, max(daily_values, default=0) + 1)))
+        chart2_lay.addWidget(self.daily_chart)
         layout.addWidget(chart2_card)
 
     def update_chart(self, risk_val):
+        risk_val = max(0, min(100, int(risk_val)))
+        risk_level = self._risk_level(risk_val)
+        occurrence_saved = False
+        if risk_level != self._last_risk_level:
+            self._save_occurrence(risk_val, risk_level)
+            self._last_risk_level = risk_level
+            self._refresh_daily_occurrences()
+            occurrence_saved = True
+
         self.risk_data = self.risk_data[1:]
         self.risk_data.append(risk_val)
         self.data_line.setData(self.time_data, self.risk_data)
+        return occurrence_saved
 
 # ----------------- MAIN LAYOUT -----------------
 class DashboardMainLayout(QWidget):
@@ -594,7 +800,19 @@ class DashboardMainLayout(QWidget):
         self.page_dashboard.cam1.status_badge.setStyleSheet(f"color: {cor}; font-weight: bold; font-size: 11px; background-color: {cor}25; border-radius: 4px; padding: 4px 8px;")
         
         # Atualiza gráfico ao vivo[cite: 1]
-        self.page_reports.update_chart(risco_percentual)
+        occurrence_saved = self.page_reports.update_chart(risco_percentual)
+        if occurrence_saved:
+            self.page_dashboard.set_global_compliance(
+                self.page_reports.get_historical_compliance()
+            )
+
+    def update_alert(self, active, risk_percentage, risk_level, details, recorded_at):
+        self.page_alerts.update_alert(
+            active, risk_percentage, risk_level, details, recorded_at
+        )
+
+    def set_operator(self, user):
+        self.page_ops.set_operator(user)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -639,6 +857,9 @@ class DashboardMainLayout(QWidget):
         self.page_alerts = AlertsPage()
         self.page_ops = OpsPage()
         self.page_reports = ReportsPage()
+        self.page_dashboard.set_global_compliance(
+            self.page_reports.get_historical_compliance()
+        )
         
         self.stack.addWidget(self.page_dashboard)
         self.stack.addWidget(self.page_alerts)

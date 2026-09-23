@@ -18,10 +18,11 @@ class ApplicationOrchestrator(QMainWindow):
 
         super().__init__()
         self.setWindowTitle("ProSec - Industrial Safety Monitoring")
-        self.resize(1300, 850)
+        self.resize(1450, 920)
 
         self.pipelines = {} # Dicionário para guardar as threads de múltiplas câmeras
-    
+        self.pipeline_thread = None
+
         # Stack centralizador de todas as telas principais do sistema
         self.central_stack = QStackedWidget()
         self.setCentralWidget(self.central_stack)
@@ -70,18 +71,22 @@ class ApplicationOrchestrator(QMainWindow):
 
             print("Iniciando carregamento dos modelos YOLO e XGBoost...")
 
-            self.pipeline_thread = SafetyPipelineThread(porta_serial='COM3')
+            self.pipeline_thread = SafetyPipelineThread(porta_serial='/dev/ttyUSB0')
 
             # Conecta os sinais da IA (app4) DIRETAMENTE aos métodos da interface (dashboard_view)
 
             self.pipeline_thread.frame_updated.connect(self.dashboard_view.page_dashboard.cam1.set_frame)
 
             self.pipeline_thread.metrics_updated.connect(self.dashboard_view.update_live_metrics)
+            self.pipeline_thread.alert_updated.connect(self.dashboard_view.update_alert)
 
             self.pipeline_thread.start()
 
-    def _handle_login_success(self):
+    def _handle_login_success(self, user):
         """Função chamada quando o usuário passa do login."""
+        self.current_user = user
+        self.selection_view.set_user(user)
+        self.dashboard_view.set_operator(user)
         self.central_stack.setCurrentIndex(1)
 
     def _configure_and_start_cam(self, cam_id):
@@ -97,11 +102,13 @@ class ApplicationOrchestrator(QMainWindow):
             
             if cam_id in self.pipelines:
                 self.pipelines[cam_id].stop()
+                del self.pipelines[cam_id]
                 
             # A fonte pode ser um índice local ou uma URL RTSP.
-            thread = SafetyPipelineThread(porta_serial='COM3', camera_index=settings["camera_source"])
+            thread = SafetyPipelineThread(porta_serial='/dev/ttyUSB0', camera_index=settings["camera_source"])
             thread.frame_updated.connect(cam_widget.set_frame)
             thread.metrics_updated.connect(self.dashboard_view.update_live_metrics)
+            thread.alert_updated.connect(self.dashboard_view.update_alert)
             cam_widget.dead_zones_changed.connect(thread.set_dead_zones)
             
             thread.set_tags(settings["tags"])
@@ -125,6 +132,11 @@ class ApplicationOrchestrator(QMainWindow):
         for thread in self.pipelines.values():
             thread.stop()
         self.pipelines.clear()
+
+        if self.pipeline_thread is not None:
+            self.pipeline_thread.stop()
+            self.pipeline_thread = None
+
         event.accept()
 
     def _goto_login_screen(self):
@@ -143,17 +155,6 @@ class ApplicationOrchestrator(QMainWindow):
 
         self.dashboard_view.nav_buttons[page_index].setChecked(True)
         self.central_stack.setCurrentIndex(2)
-
-    def closeEvent(self, event):
-        """Libera de forma segura a Câmera e o Microcontrolador ao fechar o app."""
-
-        if self.pipeline_thread is not None:
-
-            print("Encerrando a Inteligência Artificial e liberando portas USB/Câmera...")
-            self.pipeline_thread.stop()
-            self.pipeline_thread = None
-
-        event.accept()
 
 if __name__ == "__main__":
 
