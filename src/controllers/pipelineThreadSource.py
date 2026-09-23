@@ -4,7 +4,11 @@ import json
 import serial
 import math
 import numpy as np
+import warnings
+import joblib
+import xgboost as xgb
 from datetime import datetime
+from pathlib import Path
 from ultralytics import YOLO
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
@@ -13,6 +17,45 @@ from PySide6.QtGui import QImage
 COLOR_YELLOW = "#F4B400"
 COLOR_RED = "#D9383A"
 COLOR_GREEN = "#2D9C56"
+
+class OperationalRiskPredictor:
+    """Aplica o modelo histórico treinado com as features preservadas no scaler."""
+
+    RISK_BY_CLASS = {0: 100, 1: 75, 2: 45, 3: 15}
+
+    def __init__(self, model_path, scaler_path):
+        self.model = None
+        self.scaler = None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self.scaler = joblib.load(scaler_path)
+            self.model = xgb.XGBClassifier()
+            self.model.load_model(model_path)
+            if self.scaler.n_features_in_ != 6 or self.model.n_features_in_ != 6:
+                raise ValueError("O modelo de risco deve receber exatamente 6 features")
+            print("✓ Modelo histórico de risco carregado")
+        except Exception as error:
+            print(f"⚠ Modelo histórico indisponível: {error}")
+
+    def predict(self, features):
+        if self.model is None or self.scaler is None:
+            return None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                scaled_features = self.scaler.transform(np.asarray([features], dtype=float))
+                probabilities = self.model.predict_proba(scaled_features)[0]
+            predicted_class = int(self.model.classes_[int(np.argmax(probabilities))])
+            risk_score = round(sum(
+                probability * self.RISK_BY_CLASS.get(int(class_id), 50)
+                for probability, class_id in zip(probabilities, self.model.classes_)
+            ))
+            return min(max(risk_score, 0), 100), predicted_class
+        except Exception as error:
+            print(f"⚠ Falha na previsão histórica: {error}")
+            return None
+
 
 class SafetyPipelineThread(QThread):
     """
@@ -27,10 +70,16 @@ class SafetyPipelineThread(QThread):
         super().__init__()
         self.stop_flag = False
         self.camera_index = camera_index
+        source_root = Path(__file__).resolve().parents[1]
         
         # Carregamento dos modelos
-        self.model_pose = YOLO('yolov8n-pose.pt') 
-        self.model_epi = YOLO('modelo_treino_mario.pt') 
+        self.model_pose = YOLO(source_root / 'models' / 'yolo26n-pose.pt')
+        self.model_epi = YOLO(source_root / 'models' / 'modelo_treino_mario.pt')
+        project_root = Path(__file__).resolve().parents[2]
+        self.risk_predictor = OperationalRiskPredictor(
+            project_root / 'modelos' / 'xgboost_risco_operacional.json',
+            project_root / 'modelos' / 'scaler_integrado.pkl'
+        )
         self.active_tags = {
             "postura": True, "capacete": True, "colete": True,
             "oculos": True, "luvas": True, "botas": True
@@ -123,6 +172,9 @@ class SafetyPipelineThread(QThread):
             postura_score = 0
             status_postura = "Postura: OK"
             angulo_tronco = 0.0
+            angulo_secundario = 0.0
+            dx = 0.0
+            dy = 0.0
             
             # EPI (0: Sem Capacete, 1: Sem Colete) - Supondo ID das classes
             epi_score = 0
@@ -142,6 +194,10 @@ class SafetyPipelineThread(QThread):
                         dx = ombro_x - quadril_x
                         dy = quadril_y - ombro_y
                         angulo_tronco = math.degrees(math.atan2(abs(dx), dy))
+
+                    nariz_x, nariz_y = keypoints[0]
+                    if ombro_y > 0 and nariz_y > 0:
+                        angulo_secundario = math.degrees(math.atan2(abs(nariz_x - ombro_x), abs(ombro_y - nariz_y)))
                         
                         # Tabela simplificada RULA para Tronco:
                         if angulo_tronco < 10:
@@ -180,8 +236,18 @@ class SafetyPipelineThread(QThread):
                 
             status_epi = "EPI: OK" if epi_score == 0 else f"Falta: {', '.join(epi_ausentes)}"
 
-            # 4. Cálculo do Risco Global
-            risco_percentual = min(postura_score + epi_score, 100)
+            # 4. Previsão histórica e cálculo do risco global
+            risco_imediato = min(postura_score + epi_score, 100)
+            risco_predictivo = self.risk_predictor.predict([
+                angulo_tronco,
+                angulo_secundario,
+                dx,
+                dy,
+                float(tem_capacete),
+                float(tem_colete)
+            ])
+            risco_modelo = risco_predictivo[0] if risco_predictivo else 0
+            risco_percentual = max(risco_imediato, risco_modelo)
             
             if risco_percentual <= 30:
                 risco_score, cor_final = "BAIXO", COLOR_GREEN
