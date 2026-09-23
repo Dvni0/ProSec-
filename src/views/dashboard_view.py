@@ -1,4 +1,8 @@
 # dashboard_view.py
+import sqlite3
+from datetime import datetime, timedelta
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QPoint, QRectF, QSize, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap
 from PySide6.QtWidgets import (
@@ -405,6 +409,11 @@ class CustomChartWidget(QWidget):
             for pt in points:
                 painter.drawEllipse(pt, 5, 5)
 
+    def update_data(self, x_labels, data):
+        self.x_labels = x_labels
+        self.series[0]["data"] = data
+        self.update()
+
 # ----------------- PAGINAS INTERNAS -----------------
 class DashboardPage(QWidget):
     def __init__(self, parent=None):
@@ -554,7 +563,80 @@ class OpsPage(QWidget):
 class ReportsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.occurrences_db = Path(__file__).resolve().parents[2] / "ocorrencias_risco.db"
+        self._initialize_occurrences_db()
         self.init_ui()
+
+    def _initialize_occurrences_db(self):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS risk_occurrences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recorded_at TEXT NOT NULL,
+                    risk_percentage INTEGER NOT NULL,
+                    risk_level TEXT NOT NULL
+                )
+                """
+            )
+
+    def _load_saved_risks(self):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            rows = connection.execute(
+                """
+                SELECT risk_percentage
+                FROM risk_occurrences
+                ORDER BY id DESC
+                LIMIT 60
+                """
+            ).fetchall()
+        return [int(row[0]) for row in reversed(rows)]
+
+    def _risk_level(self, risk_val):
+        if risk_val <= 30:
+            return "BAIXO"
+        if risk_val <= 60:
+            return "MÉDIO"
+        return "ALTO"
+
+    def _save_occurrence(self, risk_val, risk_level):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            connection.execute(
+                """
+                INSERT INTO risk_occurrences (recorded_at, risk_percentage, risk_level)
+                VALUES (?, ?, ?)
+                """,
+                (datetime.now().isoformat(timespec="seconds"), risk_val, risk_level),
+            )
+
+    def _load_daily_occurrences(self):
+        today = datetime.now().date()
+        first_day = today - timedelta(days=6)
+        day_keys = [
+            (first_day + timedelta(days=offset)).isoformat()
+            for offset in range(7)
+        ]
+        with sqlite3.connect(self.occurrences_db) as connection:
+            rows = connection.execute(
+                """
+                SELECT substr(recorded_at, 1, 10), COUNT(*)
+                FROM risk_occurrences
+                WHERE substr(recorded_at, 1, 10) >= ?
+                GROUP BY substr(recorded_at, 1, 10)
+                """,
+                (first_day.isoformat(),),
+            ).fetchall()
+        counts = {day: count for day, count in rows}
+        labels = [
+            (first_day + timedelta(days=offset)).strftime("%d/%m")
+            for offset in range(7)
+        ]
+        return labels, [counts.get(day, 0) for day in day_keys]
+
+    def _refresh_daily_occurrences(self):
+        labels, values = self._load_daily_occurrences()
+        self.daily_chart.update_data(labels, values)
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -579,7 +661,9 @@ class ReportsPage(QWidget):
         layout.addWidget(chart1_card)
 
         self.time_data = list(range(60))
-        self.risk_data = [0] * 60
+        saved_risks = self._load_saved_risks()
+        self.risk_data = [0] * (60 - len(saved_risks)) + saved_risks
+        self._last_risk_level = None
         self.pen = pg.mkPen(color=COLOR_RED, width=3)
         self.data_line = self.plot_widget.plot(self.time_data, self.risk_data, pen=self.pen)
         
@@ -587,13 +671,20 @@ class ReportsPage(QWidget):
         chart2_card.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 12px;")
         chart2_lay = QVBoxLayout(chart2_card)
         chart2_lay.addWidget(QLabel("📊 Daily Incident Count", styleSheet="color: white; font-size: 15px; font-weight: bold; background: transparent; border: none;"))
-        x_lbls = ["Jun 10", "Jun 11", "Jun 12", "Jun 13", "Jun 14", "Jun 15", "Jun 16"]
-        series2 = [{"name": "Incidents", "color": COLOR_YELLOW, "data": CONFIG["daily_incidents_data"]}]
-        chart2 = CustomChartWidget(x_lbls, series2, (0, 8))
-        chart2_lay.addWidget(chart2)
+        x_lbls, daily_values = self._load_daily_occurrences()
+        series2 = [{"name": "Incidents", "color": COLOR_YELLOW, "data": daily_values}]
+        self.daily_chart = CustomChartWidget(x_lbls, series2, (0, max(8, max(daily_values, default=0) + 1)))
+        chart2_lay.addWidget(self.daily_chart)
         layout.addWidget(chart2_card)
 
     def update_chart(self, risk_val):
+        risk_val = max(0, min(100, int(risk_val)))
+        risk_level = self._risk_level(risk_val)
+        if risk_level != self._last_risk_level:
+            self._save_occurrence(risk_val, risk_level)
+            self._last_risk_level = risk_level
+            self._refresh_daily_occurrences()
+
         self.risk_data = self.risk_data[1:]
         self.risk_data.append(risk_val)
         self.data_line.setData(self.time_data, self.risk_data)
