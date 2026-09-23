@@ -63,6 +63,7 @@ class SafetyPipelineThread(QThread):
     cálculo de risco (RULA) e comunicação de hardware (ESP32).
     """
     frame_updated = Signal(QImage)
+    camera_error = Signal(str)
     # status_postura, status_epi, risco_texto, cor_hex, risco_percentual
     metrics_updated = Signal(str, str, str, str, int) 
 
@@ -141,6 +142,7 @@ class SafetyPipelineThread(QThread):
         # Inicializa a câmera selecionada no menu
         cap = cv2.VideoCapture(self.camera_index)
         if not cap.isOpened():
+            self.camera_error.emit(f"Não foi possível abrir a câmera: {self.camera_index}")
             print("❌ Nenhuma câmera funcional encontrada.")
             return
 

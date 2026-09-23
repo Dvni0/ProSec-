@@ -94,6 +94,7 @@ class ZoneFeedWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pixmap = QPixmap()
+        self.error_text = ""
         self.dead_zones = []
         self.current_zone = []
         self.drawing_enabled = False
@@ -102,6 +103,12 @@ class ZoneFeedWidget(QWidget):
 
     def set_frame(self, qt_img):
         self.pixmap = QPixmap.fromImage(qt_img)
+        self.error_text = ""
+        self.update()
+
+    def set_error(self, message):
+        self.pixmap = QPixmap()
+        self.error_text = message
         self.update()
     
     def clear_frame(self):
@@ -173,6 +180,9 @@ class ZoneFeedWidget(QWidget):
         image_rect = self._image_rect()
         if not self.pixmap.isNull():
             painter.drawPixmap(image_rect, self.pixmap)
+        elif self.error_text:
+            painter.setPen(QColor("#D9383A"))
+            painter.drawText(self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.error_text)
 
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(QColor("#B8BEC9"), 2))
