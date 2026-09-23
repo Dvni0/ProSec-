@@ -5,11 +5,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QCheckBox, QFrame
 )
-from configs.config import COLOR_BG_MAIN, COLOR_BORDER, COLOR_YELLOW, COLOR_TEXT_MUTED, LOGIN_BACKGROUND_IMAGE_PATH
+from configs.config import COLOR_BG_MAIN, COLOR_BORDER, COLOR_YELLOW, COLOR_RED, COLOR_TEXT_MUTED, LOGIN_BACKGROUND_IMAGE_PATH
+from models.user_database import UserDatabase
 
 class LoginView(QWidget):
     # Sinal emitido ao validar o login (conecta com a tela de entrada)
-    login_successful = Signal()
+    login_successful = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,6 +22,7 @@ class LoginView(QWidget):
         self.input_password = QLineEdit()       # Campo de Entrada: Senha (com máscara)
         self.chk_remember_me = QCheckBox()      # Checkbox: Lembrar de mim
         self.btn_enter = QPushButton()          # Botão: ENTRAR (Gera a ação de Login)
+        self.user_database = UserDatabase()
         # ==============================================================================
 
         self.init_ui()
@@ -176,6 +178,11 @@ class LoginView(QWidget):
         """)
         self.btn_enter.clicked.connect(self._handle_login)
         card_layout.addWidget(self.btn_enter)
+
+        self.login_status = QLabel("")
+        self.login_status.setAlignment(Qt.AlignCenter)
+        self.login_status.setStyleSheet(f"color: {COLOR_RED}; font-size: 11px; background: transparent;")
+        card_layout.addWidget(self.login_status)
         
         # Texto de rodapé no Cartão
         register_lbl = QLabel("Ainda não tem conta? <a href='#' style='color: #F4B400; text-decoration: underline;'>Entre em contato com o administrador</a>")
@@ -196,8 +203,14 @@ class LoginView(QWidget):
         main_layout.addWidget(center_widget)
 
     def _handle_login(self):
-        """Dispara a transição de tela. O Back-end poderá validar as credenciais aqui."""
-        self.login_successful.emit()
+        user = self.user_database.authenticate(
+            self.input_username.text(), self.input_password.text()
+        )
+        if user is None:
+            self.login_status.setText("Usuário ou senha inválidos")
+            return
+        self.login_status.clear()
+        self.login_successful.emit(user)
 
     def paintEvent(self, event):
         """Estiliza dinamicamente o fundo com a imagem especificada no config.py."""

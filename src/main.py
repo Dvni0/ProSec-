@@ -82,8 +82,10 @@ class ApplicationOrchestrator(QMainWindow):
 
             self.pipeline_thread.start()
 
-    def _handle_login_success(self):
+    def _handle_login_success(self, user):
         """Função chamada quando o usuário passa do login."""
+        self.current_user = user
+        self.dashboard_view.set_operator(user)
         self.central_stack.setCurrentIndex(1)
 
     def _configure_and_start_cam(self, cam_id):

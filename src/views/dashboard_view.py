@@ -573,6 +573,7 @@ class OpsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -584,17 +585,52 @@ class OpsPage(QWidget):
         profile_card.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 12px;")
         prof_layout = QVBoxLayout(profile_card)
         initials = "".join([part[0] for part in CONFIG["op_name"].split() if part])[:2]
-        avatar = QLabel(initials)
-        avatar.setFixedSize(90, 90)
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setStyleSheet(f"background-color: {COLOR_YELLOW}; color: #121319; font-size: 28px; font-weight: bold; border-radius: 45px;")
-        prof_layout.addWidget(avatar, 0, Qt.AlignCenter)
-        prof_layout.addWidget(QLabel(CONFIG["op_name"], alignment=Qt.AlignCenter, styleSheet="color: white; font-size: 18px; font-weight: bold; background: transparent; border: none;"))
-        prof_layout.addWidget(QLabel(CONFIG["op_role"], alignment=Qt.AlignCenter, styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background: transparent; border: none;"))
+        self.avatar = QLabel(initials)
+        self.avatar.setFixedSize(90, 90)
+        self.avatar.setAlignment(Qt.AlignCenter)
+        self.avatar.setStyleSheet(f"background-color: {COLOR_YELLOW}; color: #121319; font-size: 28px; font-weight: bold; border-radius: 45px;")
+        prof_layout.addWidget(self.avatar, 0, Qt.AlignCenter)
+        self.name_label = QLabel(alignment=Qt.AlignCenter, styleSheet="color: white; font-size: 18px; font-weight: bold; background: transparent; border: none;")
+        self.role_label = QLabel(alignment=Qt.AlignCenter, styleSheet=f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background: transparent; border: none;")
+        prof_layout.addWidget(self.name_label)
+        prof_layout.addWidget(self.role_label)
         prof_layout.addStretch()
         panel_layout.addWidget(profile_card, 1)
+        details_card = QFrame()
+        details_card.setStyleSheet(f"background-color: {COLOR_BG_CARD}; border: 1px solid {COLOR_BORDER}; border-radius: 12px;")
+        details_layout = QVBoxLayout(details_card)
+        details_layout.addWidget(QLabel("Operational Information", styleSheet="color: white; font-size: 16px; font-weight: bold; background: transparent; border: none;"))
+        self.details_label = QLabel()
+        self.details_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 13px; background: transparent; border: none;")
+        self.details_label.setWordWrap(True)
+        details_layout.addWidget(self.details_label)
+        details_layout.addStretch()
+        panel_layout.addWidget(details_card, 2)
         layout.addLayout(panel_layout)
         layout.addStretch()
+        self.set_operator({
+            "full_name": CONFIG["op_name"],
+            "role": CONFIG["op_role"],
+            "department": "Linha de Montagem A",
+            "shift": CONFIG["op_shift"],
+            "experience_years": CONFIG["op_experience_val"],
+            "compliance": CONFIG["op_compliance"],
+            "email": "-",
+        })
+
+    def set_operator(self, user):
+        full_name = user.get("full_name", CONFIG["op_name"])
+        self.name_label.setText(full_name)
+        self.role_label.setText(user.get("role", CONFIG["op_role"]))
+        initials = "".join(part[0] for part in full_name.split() if part)[:2].upper()
+        self.avatar.setText(initials)
+        self.details_label.setText(
+            f"Setor: {user.get('department', '-') }\n"
+            f"Turno: {user.get('shift', '-') }\n"
+            f"Experiência: {user.get('experience_years', 0)} anos\n"
+            f"Compliance: {user.get('compliance', '-')}\n"
+            f"E-mail: {user.get('email', '-')}"
+        )
 
 class ReportsPage(QWidget):
     def __init__(self, parent=None):
@@ -747,6 +783,9 @@ class DashboardMainLayout(QWidget):
         self.page_alerts.update_alert(
             active, risk_percentage, risk_level, details, recorded_at
         )
+
+    def set_operator(self, user):
+        self.page_ops.set_operator(user)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
