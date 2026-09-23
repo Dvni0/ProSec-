@@ -98,8 +98,8 @@ class ApplicationOrchestrator(QMainWindow):
             if cam_id in self.pipelines:
                 self.pipelines[cam_id].stop()
                 
-            # Inicia a IA com o índice de câmera selecionado
-            thread = SafetyPipelineThread(porta_serial='COM3', camera_index=settings["camera_index"])
+            # A fonte pode ser um índice local ou uma URL RTSP.
+            thread = SafetyPipelineThread(porta_serial='COM3', camera_index=settings["camera_source"])
             thread.frame_updated.connect(cam_widget.set_frame)
             thread.metrics_updated.connect(self.dashboard_view.update_live_metrics)
             

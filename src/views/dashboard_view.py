@@ -4,7 +4,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QScrollArea, QStackedWidget, QDialog,
-    QCheckBox, QDialogButtonBox, QComboBox, QSizePolicy
+    QCheckBox, QDialogButtonBox, QComboBox, QSizePolicy, QLineEdit
 )
 import pyqtgraph as pg
 
@@ -25,8 +25,17 @@ class TagSelectionDialog(QDialog):
         layout.addWidget(QLabel("1. Origem do Vídeo:"))
         self.cam_combo = QComboBox()
         self.cam_combo.setStyleSheet("background-color: #121319; border: 1px solid #2B2E3C; padding: 5px;")
-        self.cam_combo.addItems(["Câmera 0 (Notebook)", "Câmera 1 (USB 1)", "Câmera 2 (USB 2)"])
+        self.cam_combo.addItems(["Câmera 0 (Notebook)", "Câmera 1 (USB 1)", "Câmera 2 (USB 2)", "Câmera RTSP"])
         layout.addWidget(self.cam_combo)
+
+        self.rtsp_input = QLineEdit()
+        self.rtsp_input.setPlaceholderText("rtsp://usuario:senha@ip:porta/caminho")
+        self.rtsp_input.setStyleSheet("background-color: #121319; border: 1px solid #2B2E3C; padding: 5px;")
+        self.rtsp_input.setEnabled(False)
+        layout.addWidget(self.rtsp_input)
+        self.cam_combo.currentIndexChanged.connect(
+            lambda index: self.rtsp_input.setEnabled(index == 3)
+        )
         layout.addSpacing(10)
 
         layout.addWidget(QLabel("2. Tags a serem verificadas (Quadrados):"))
@@ -48,7 +57,7 @@ class TagSelectionDialog(QDialog):
 
     def get_settings(self):
         return {
-            "camera_index": self.cam_combo.currentIndex(),
+            "camera_source": self.rtsp_input.text().strip() if self.cam_combo.currentIndex() == 3 else self.cam_combo.currentIndex(),
             "tags": {
                 "postura": self.chk_postura.isChecked(),
                 "capacete": self.chk_capacete.isChecked(),
