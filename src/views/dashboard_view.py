@@ -1,4 +1,5 @@
 # dashboard_view.py
+import csv
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,8 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QScrollArea, QStackedWidget, QDialog,
-    QCheckBox, QDialogButtonBox, QComboBox, QSizePolicy, QLineEdit
+    QCheckBox, QDialogButtonBox, QComboBox, QSizePolicy, QLineEdit,
+    QFileDialog, QMessageBox
 )
 import pyqtgraph as pg
 
@@ -725,6 +727,57 @@ class ReportsPage(QWidget):
         ]
         return labels, [counts.get(day, 0) for day in day_keys]
 
+    def _load_occurrences_between(self, start, end):
+        with sqlite3.connect(self.occurrences_db) as connection:
+            return connection.execute(
+                """
+                SELECT recorded_at, risk_percentage, risk_level
+                FROM risk_occurrences
+                WHERE recorded_at >= ? AND recorded_at < ?
+                ORDER BY recorded_at
+                """,
+                (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")),
+            ).fetchall()
+
+    def _export_occurrences(self, period_name, start, end):
+        rows = self._load_occurrences_between(start, end)
+        if not rows:
+            QMessageBox.information(
+                self,
+                "Exportar ocorrências",
+                f"Nenhuma ocorrência registrada no período {period_name.lower()}.",
+            )
+            return
+
+        default_name = f"ocorrencias_{period_name.lower()}_{start:%Y-%m-%d}.csv"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Exportar ocorrências {period_name.lower()}",
+            str(Path.home() / default_name),
+            "CSV (*.csv)",
+        )
+        if not file_path:
+            return
+
+        with open(file_path, "w", newline="", encoding="utf-8-sig") as export_file:
+            writer = csv.writer(export_file, delimiter=";")
+            writer.writerow(["Data e hora", "Risco (%)", "Nível de risco"])
+            writer.writerows(rows)
+
+        QMessageBox.information(
+            self,
+            "Exportação concluída",
+            f"{len(rows)} ocorrência(s) exportada(s) para o arquivo selecionado.",
+        )
+
+    def export_daily_occurrences(self):
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        self._export_occurrences("diario", today, today + timedelta(days=1))
+
+    def export_weekly_occurrences(self):
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        self._export_occurrences("semanal", today - timedelta(days=6), today + timedelta(days=1))
+
     def _refresh_daily_occurrences(self):
         labels, values = self._load_daily_occurrences()
         self.daily_chart.update_data(labels, values)
@@ -735,6 +788,22 @@ class ReportsPage(QWidget):
         header = QVBoxLayout()
         header.addWidget(QLabel("Risk Evolution", styleSheet="color: white; font-size: 24px; font-weight: bold;"))
         layout.addLayout(header)
+
+        export_buttons = QHBoxLayout()
+        export_daily_button = QPushButton("Exportar ocorrências do dia")
+        export_weekly_button = QPushButton("Exportar ocorrências da semana")
+        for button in (export_daily_button, export_weekly_button):
+            button.setStyleSheet(
+                f"QPushButton {{ background-color: {COLOR_BG_CARD}; color: white; "
+                f"border: 1px solid {COLOR_BORDER}; border-radius: 6px; padding: 9px 12px; }} "
+                f"QPushButton:hover {{ border-color: {COLOR_YELLOW}; color: {COLOR_YELLOW}; }}"
+            )
+        export_daily_button.clicked.connect(self.export_daily_occurrences)
+        export_weekly_button.clicked.connect(self.export_weekly_occurrences)
+        export_buttons.addWidget(export_daily_button)
+        export_buttons.addWidget(export_weekly_button)
+        export_buttons.addStretch()
+        layout.addLayout(export_buttons)
         
         # Integracao PyQtGraph[cite: 1]
         chart1_card = QFrame()
